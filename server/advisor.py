@@ -467,7 +467,8 @@ def _call_gemini(prompt, key, model="gemini-3.6-flash"):
     def post(payload):
         req = urllib.request.Request(url, data=json.dumps(payload).encode(),
                                      headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=120) as r:
+        # timeout = el doble del mínimo de animación (30s) = 60s; si tarda más, corta -> determinístico
+        with urllib.request.urlopen(req, timeout=60) as r:
             return json.loads(r.read().decode())
 
     base = {"contents": [{"parts": [{"text": prompt}]}]}

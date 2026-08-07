@@ -550,10 +550,12 @@ const BUY_Q = [
   { k: 'safe_or_niche', type: 'opt', q: '¿Gemas seguras o nicho?', opts: [['safe', '💎 Gemas seguras', 'safe'], ['niche', '🔍 Descubrir nicho', 'niche']] },
 ];
 
-const ADV = { mode: 'play', occasion: null, answers: {}, engine: 'rules', backend: 'claude', freetext: '' };
+const ADV = { mode: 'play', occasion: null, answers: {}, engine: 'rules', freetext: '', engineTouched: false };
 
 function renderAdvisor(m) {
   ADV.answers = ADV.answers || {};
+  // si Gemini está configurado, arrancá en modo Agente (salvo que el usuario ya haya elegido)
+  if (S.geminiReady && !ADV.engineTouched) ADV.engine = 'agent';
   const v = node('<div class="view advisor-wrap"></div>');
 
   // switch de modo (los botones son el título)
@@ -649,7 +651,7 @@ function engineSwitch() {
   setHint();
   box.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
     if (b.disabled) return;
-    ADV.engine = b.dataset.e;
+    ADV.engine = b.dataset.e; ADV.engineTouched = true;
     box.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
     box.querySelector('.freetext').classList.toggle('disabled', ADV.engine !== 'agent');
     setHint();
@@ -667,7 +669,8 @@ const AGENT_SEQ = [
   'Afinando la recomendación…',                              // 12–15 s
 ];
 const AGENT_TAIL = ['Dame unos segundos más…', 'Afinando la recomendación…'];
-const AGENT_MIN_MS = AGENT_SEQ.length * 3000;  // 15 s mínimo de animación
+const AGENT_STEP_MS = 5000;   // cada frase 5s (la secuencia cubre ~25s, luego alterna la cola)
+const AGENT_MIN_MS = 30000;   // mínimo 30s de animación; si el modelo tarda más, se sigue esperando
 
 function agentLoader() {
   const faces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
@@ -680,7 +683,7 @@ function agentLoader() {
     msg.textContent = step < AGENT_SEQ.length
       ? AGENT_SEQ[step]
       : AGENT_TAIL[(step - AGENT_SEQ.length) % 2];
-  }, 3000);
+  }, AGENT_STEP_MS);
   el._stop = () => { clearInterval(t1); clearInterval(t2); };
   return el;
 }
