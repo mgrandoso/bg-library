@@ -48,7 +48,7 @@ const typeColor = (s) => (SUBDOMAIN[s] ? SUBDOMAIN[s][1] : 'var(--brass)');
 /* ---------- estado ---------- */
 const S = {
   games: [], owners: [], owner: 0, view: 'library',
-  filters: { q: '', types: new Set(), players: 0, time: '', weight: '', designer: '', sort: 'rank' },
+  filters: { q: '', types: new Set(), players: 0, time: '', weight: '', designer: '', sort: 'rank', sortDir: 1 },
   stats: null, geminiReady: false,
 };
 
@@ -128,16 +128,17 @@ function currentList(kind) {
   });
   if (f.weight) list = list.filter(g => { const b = weightBucket(g.weight); return f.weight === 'light' ? b <= 1 : f.weight === 'mid' ? b === 2 : b >= 3; });
   if (f.designer) list = list.filter(g => (g.designers || []).some(d => d.name === f.designer));
-  const s = f.sort;
+  const s = f.sort, dir = f.sortDir || 1;   // dir 1 = orden más lógico (mejor/primero); -1 invierte
   list.sort((a, b) => {
-    if (s === 'rank') return (a.rank_overall || 1e9) - (b.rank_overall || 1e9);
-    if (s === 'rating') return (b.rating_bayes || 0) - (a.rating_bayes || 0);
-    if (s === 'weight') return (b.weight || 0) - (a.weight || 0);
-    if (s === 'year') return (+b.yearpublished || 0) - (+a.yearpublished || 0);
-    if (s === 'name') return (a.name || '').localeCompare(b.name || '');
-    if (s === 'prio') return (a.wishlist_priority || 3) - (b.wishlist_priority || 3);
-    if (s === 'time') return (a.maxplaytime || 0) - (b.maxplaytime || 0);
-    return 0;
+    let cmp = 0;
+    if (s === 'rank') cmp = (a.rank_overall || 1e9) - (b.rank_overall || 1e9);
+    else if (s === 'rating') cmp = (b.rating_bayes || 0) - (a.rating_bayes || 0);
+    else if (s === 'weight') cmp = (b.weight || 0) - (a.weight || 0);
+    else if (s === 'year') cmp = (+b.yearpublished || 0) - (+a.yearpublished || 0);
+    else if (s === 'name') cmp = (a.name || '').localeCompare(b.name || '');
+    else if (s === 'prio') cmp = (a.wishlist_priority || 3) - (b.wishlist_priority || 3);
+    else if (s === 'time') cmp = (a.maxplaytime || 0) - (b.maxplaytime || 0);
+    return cmp * dir;
   });
   return list;
 }
@@ -189,26 +190,35 @@ function renderFilters(kind) {
     ? [['prio', 'Prioridad'], ['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['year', 'Año'], ['name', 'Nombre']]
     : [['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['time', 'Duración'], ['year', 'Año'], ['name', 'Nombre']];
   if (kind === 'wishlist' && f.sort === 'rank') f.sort = 'prio';
-  const sort = node(`<select title="Ordenar">${sortOpts.map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>↕ ${l}</option>`).join('')}</select>`);
+  const sort = node(`<select title="Ordenar por">${sortOpts.map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>Orden: ${l}</option>`).join('')}</select>`);
   sort.addEventListener('change', e => { f.sort = e.target.value; refreshGrid(kind); });
   bar.append(sort);
 
-  const clearBtn = node('<button class="chip clear-filters" id="clearFilters">✕ Limpiar filtros</button>');
-  clearBtn.addEventListener('click', () => {
-    S.filters = { q: '', types: new Set(), players: 0, time: '', weight: '', designer: '', sort: f.sort };
-    render();
+  const dirBtn = node(`<button class="mini-select sortdir" title="Invertir orden">${f.sortDir === 1 ? '↓' : '↑'}</button>`);
+  dirBtn.addEventListener('click', () => {
+    f.sortDir = f.sortDir === 1 ? -1 : 1;
+    dirBtn.textContent = f.sortDir === 1 ? '↓' : '↑';
+    dirBtn.classList.toggle('flipped', f.sortDir === -1);
+    refreshGrid(kind);
   });
-  clearBtn.style.display = hasActiveFilters() ? 'inline-flex' : 'none';
-  bar.append(clearBtn);
-  bar.append(node(`<span class="count-tag" id="countTag"></span>`));
+  dirBtn.classList.toggle('flipped', f.sortDir === -1);
+  bar.append(dirBtn);
 
-  // chips de tipo
+  // chips de tipo (con Limpiar + contador al final de esta fila, no arriba)
   const chips = node('<div class="type-chips"></div>');
   Object.keys(SUBDOMAIN).forEach(s => {
     const c = node(`<button class="chip ${f.types.has(s) ? 'active' : ''}" style="--c:${typeColor(s)}"><span class="dot"></span>${typeEs(s)}</button>`);
     c.addEventListener('click', () => { f.types.has(s) ? f.types.delete(s) : f.types.add(s); c.classList.toggle('active'); refreshGrid(kind); });
     chips.append(c);
   });
+  const clearBtn = node('<button class="chip clear-filters" id="clearFilters">✕ Limpiar filtros</button>');
+  clearBtn.addEventListener('click', () => {
+    S.filters = { q: '', types: new Set(), players: 0, time: '', weight: '', designer: '', sort: f.sort, sortDir: f.sortDir };
+    render();
+  });
+  clearBtn.style.display = hasActiveFilters() ? 'inline-flex' : 'none';
+  chips.append(clearBtn);                                        // al lado de los tags
+  chips.append(node(`<span class="count-tag" id="countTag"></span>`));  // al margen derecho
   bar.append(chips);
   return bar;
 }

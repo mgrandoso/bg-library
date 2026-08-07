@@ -150,7 +150,10 @@ select, .mini-select {
 }
 .chip.clear-filters { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); color: var(--danger); font-weight: 700; }
 .chip.clear-filters:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
-.count-tag { color: var(--ink-dim); font-size: 13px; font-weight: 600; margin-left: auto; white-space: nowrap; }
+.sortdir { cursor: pointer; font-weight: 800; font-size: 15px; line-height: 1; padding: 9px 12px; min-width: 40px; }
+.sortdir:hover { border-color: var(--brass); color: var(--ink); }
+.sortdir.flipped { color: var(--brass-ink); background: var(--brass); border-color: transparent; }
+.count-tag { color: var(--ink-dim); font-size: 13px; font-weight: 600; white-space: nowrap; margin-left: auto; align-self: center; }
 
 .type-chips { display: flex; gap: 7px; flex-wrap: wrap; width: 100%; }
 .chip {
