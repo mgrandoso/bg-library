@@ -49,7 +49,7 @@ const typeColor = (s) => (SUBDOMAIN[s] ? SUBDOMAIN[s][1] : 'var(--brass)');
 const S = {
   games: [], owners: [], owner: 0, view: 'library',
   filters: { q: '', types: new Set(), players: 0, time: '', weight: '', designer: '', sort: 'rank', sortDir: 1 },
-  stats: null, geminiReady: false,
+  stats: null, geminiReady: false, panelSource: 'own',
 };
 
 /* ================= arranque ================= */
@@ -444,22 +444,25 @@ function bars(entries, max, colorFn) {
 
 async function renderPanel(m) {
   m.append(node('<div class="view"><div class="spinner"></div></div>'));
+  const src = S.panelSource || 'own';
   let st;
-  try { st = await api('/stats?owner=' + S.owner); } catch (e) { m.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`; return; }
+  try { st = await api('/stats?owner=' + S.owner + '&source=' + src); } catch (e) { m.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`; return; }
   S.stats = st;
   const h = st.highlights || {}; const sm = st.summary || {};
   const v = node('<div class="view"></div>');
   const grid = node('<div class="stat-grid"></div>');
 
-  // --- Tu colección (enriquecida) ---
+  // --- Tu colección: dos sub-tarjetas clickeables (biblioteca / wishlist) que cambian la fuente ---
   const yr = (sm.year_min && sm.year_max) ? `${sm.year_min}–${sm.year_max}` : '—';
-  grid.append(node(`<div class="panel summary" style="grid-column:span 4">
+  const summary = node(`<div class="panel summary" style="grid-column:span 4">
     <h3>Tu colección</h3>
-    <div class="summary-nums">
-      <div class="sn"><div class="bigstat">${st.counts.own}</div><div class="sn-l">📦 juegos</div></div>
-      <div class="sn-div"></div>
-      <div class="sn"><div class="bigstat" style="color:var(--m-party)">${st.counts.wishlist}</div><div class="sn-l">⭐ en wishlist</div></div>
+    <div class="src-toggle">
+      <button class="src-card ${src === 'own' ? 'on' : ''}" data-src="own">
+        <div class="bigstat">${st.counts.own}</div><div class="src-l">📦 en tu biblioteca</div></button>
+      <button class="src-card ${src === 'wishlist' ? 'on' : ''}" data-src="wishlist">
+        <div class="bigstat" style="color:var(--m-party)">${st.counts.wishlist}</div><div class="src-l">⭐ en tu wishlist</div></button>
     </div>
+    <div class="src-hint">Mostrando datos de <b>${src === 'wishlist' ? 'tu wishlist' : 'tu biblioteca'}</b> · tocá para cambiar</div>
     <div class="mini-stats">
       <div class="ms"><span class="ms-k">Complejidad media</span><span class="ms-v">${sm.avg_weight ? sm.avg_weight + ' / 5' : '—'}</span></div>
       <div class="ms"><span class="ms-k">Duración típica</span><span class="ms-v">${sm.median_time ? sm.median_time + ' min' : '—'}</span></div>
@@ -467,7 +470,12 @@ async function renderPanel(m) {
       <div class="ms"><span class="ms-k">Mecánicas distintas</span><span class="ms-v">${sm.mechanics || 0}</span></div>
       <div class="ms"><span class="ms-k">Años de edición</span><span class="ms-v">${yr}</span></div>
     </div>
-  </div>`));
+  </div>`);
+  summary.querySelectorAll('.src-card').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.src === S.panelSource) return;
+    S.panelSource = b.dataset.src; renderPanel(m);
+  }));
+  grid.append(summary);
 
   // --- Destacados ---
   const hi = [
@@ -479,7 +487,7 @@ async function renderPanel(m) {
     ['🌙', h.long, 'de la tarde (90’+)', 'var(--m-war)'],
   ];
   grid.append(node(`<div class="panel highlights" style="grid-column:span 8">
-    <h3>Destacados de tu colección</h3>
+    <h3>Destacados de ${src === 'wishlist' ? 'tu wishlist' : 'tu biblioteca'}</h3>
     <div class="hi-grid">
       ${hi.map(([ic, n, l, c]) => `<div class="hi-tile" style="--tc:${c}"><div class="hi-ic">${ic}</div><div class="hi-n" style="color:${c}">${n || 0}</div><div class="hi-l">${l}</div></div>`).join('')}
     </div>
@@ -499,7 +507,7 @@ async function renderPanel(m) {
   const ageEntries = Object.entries(st.by_age || {}).map(([k, val]) => [ageLabels[k] || k, val, ageColors[k]]);
   const infantiles = (st.by_type || {})["Children's Games"] || 0;
   grid.append(node(`<div class="panel" style="grid-column:span 4"><h3>Por edad recomendada</h3>${bars(ageEntries, Math.max(1, ...ageEntries.map(e => e[1])))}
-    <div class="age-note"><span>🧸 Infantiles <small>(pensados para chicos)</small></span><b>${infantiles}</b></div></div>`));
+    <div class="age-note"><span>🧸 Infantiles <small>(diseñados para los más peques)</small></span><b>${infantiles}</b></div></div>`));
 
   // --- ¿Para cuántos jugadores? ---
   const cover = st.player_cover; const maxCover = Math.max(1, ...Object.values(cover));
@@ -512,7 +520,7 @@ async function renderPanel(m) {
     return `<div class="vbar"><div class="vbar-n">${c}</div><div class="vbar-col"><div class="vbar-fill" style="height:${Math.max(c > 0 ? 6 : 2, pct)}%;background:${col}"></div></div><div class="vbar-x">${n}</div></div>`;
   }).join('')}
     </div>
-    ${st.gaps && st.gaps.length ? `<div class="gap-note">💡 Cubrís poco los <b>${st.gaps.join(', ')} jugadores</b>. El advisor lo tiene en cuenta en "¿Qué compro?".</div>` : ''}
+    ${src === 'own' && st.gaps && st.gaps.length ? `<div class="gap-note">💡 Cubrís poco los <b>${st.gaps.join(', ')} jugadores</b>. El advisor lo tiene en cuenta en "¿Qué compro?".</div>` : ''}
   </div>`));
 
   // --- Diseñadores ---
@@ -550,7 +558,8 @@ const BUY_Q = [
   { k: 'safe_or_niche', type: 'opt', q: '¿Gemas seguras o nicho?', opts: [['safe', '💎 Gemas seguras', 'safe'], ['niche', '🔍 Descubrir nicho', 'niche']] },
 ];
 
-const ADV = { mode: 'play', occasion: null, answers: {}, engine: 'rules', freetext: '', engineTouched: false };
+const ADV = { mode: 'play', occasion: null, answers: {}, engine: 'rules', freetext: '', engineTouched: false,
+  loading: false, result: null, reqId: 0, _loader: null };
 
 function renderAdvisor(m) {
   ADV.answers = ADV.answers || {};
@@ -571,7 +580,7 @@ function renderAdvisor(m) {
 }
 function mkModeCard(mode, ic, t, d) {
   const c = node(`<button class="mode-card ${ADV.mode === mode ? 'on' : ''}"><div class="ic">${ic}</div><h3>${t}</h3><p>${d}</p></button>`);
-  c.addEventListener('click', () => { ADV.mode = mode; ADV.occasion = null; ADV.answers = {}; renderAdvisor($('#main')); });
+  c.addEventListener('click', () => { advReset(); ADV.mode = mode; ADV.occasion = null; ADV.answers = {}; renderAdvisor($('#main')); });
   return c;
 }
 
@@ -602,6 +611,13 @@ function renderAdvBody() {
   form.append(go);
   b.append(form);
   b.append(node('<div id="advResults"></div>'));
+
+  // reanudar: si hay una búsqueda en curso o un resultado, mostrarlo (persiste al navegar)
+  if (ADV.loading) showAdvLoading();
+  else if (ADV.result && ADV.result.error) {
+    form.style.display = 'none';
+    const res = $('#advResults'); res.innerHTML = `<div class="empty">Error: ${esc(ADV.result.error)}</div>`; res.append(backButton());
+  } else if (ADV.result) renderResults(ADV.result);
 }
 
 function renderQ(q) {
@@ -660,13 +676,13 @@ function engineSwitch() {
   return box;
 }
 
-// Secuencia fija (3 s c/u → 15 s en total). Si tarda más, itera AGENT_TAIL.
+// Secuencia de frases (5 s c/u → ~25 s). Si tarda más, itera AGENT_TAIL.
 const AGENT_SEQ = [
-  'Buscando las mejores sugerencias, bancame un minuto 🎲',  // 0–3 s
-  'Barajando los 20 candidatos de tu colección…',            // 3–6 s
-  'Viendo qué encaja mejor con tu grupo…',                   // 6–9 s
-  'Ya casi está…',                                           // 9–12 s
-  'Afinando la recomendación…',                              // 12–15 s
+  'Buscando las mejores sugerencias, bancame un minuto 🎲',  // 0–5 s
+  'Barajando los 20 candidatos de tu colección…',            // 5–10 s
+  'Viendo qué encaja mejor con tu grupo…',                   // 10–15 s
+  'Ya casi está…',                                           // 15–20 s
+  'Afinando la recomendación…',                              // 20–25 s
 ];
 const AGENT_TAIL = ['Dame unos segundos más…', 'Afinando la recomendación…'];
 const AGENT_STEP_MS = 5000;   // cada frase 5s (la secuencia cubre ~25s, luego alterna la cola)
@@ -688,47 +704,70 @@ function agentLoader() {
   return el;
 }
 
-async function runAdvisor() {
-  const res = $('#advResults'); const form = $('#advForm');
-  if (form) form.style.display = 'none';               // los resultados pisan el formulario
-  let loader = null;
-  if (ADV.engine === 'agent') { res.innerHTML = ''; loader = agentLoader(); res.append(loader); }
+function stopAdvLoader() { if (ADV._loader) { ADV._loader._stop(); ADV._loader = null; } }
+
+// Muestra el loader/spinner en #advResults (si estás en la vista advisor). Idempotente.
+function showAdvLoading() {
+  const res = $('#advResults'); if (!res) return;
+  const form = $('#advForm'); if (form) form.style.display = 'none';
+  stopAdvLoader();
+  if (ADV.engine === 'agent') { res.innerHTML = ''; ADV._loader = agentLoader(); res.append(ADV._loader); }
   else { res.innerHTML = '<div style="text-align:center;padding:30px 0"><div class="spinner"></div></div>'; }
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function runAdvisor() {
+  const myId = ++ADV.reqId;             // cada búsqueda tiene su id; la última manda
+  ADV.loading = true; ADV.result = null;
+  showAdvLoading();
+  const started = performance.now();
   const answers = { ...ADV.answers };
   if (ADV.engine === 'agent' && ADV.freetext.trim()) answers.texto_libre = ADV.freetext.trim();
-  const started = performance.now();
   try {
     const out = await api('/advisor', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode: ADV.mode, engine: ADV.engine, answers, owner: S.owner, limit: 5 })
     });
-    // el loader del agente se muestra un mínimo (la animación completa) aunque la respuesta llegue antes
-    if (loader) {
+    if (myId !== ADV.reqId) return;     // otra búsqueda la reemplazó
+    const totalS = ((performance.now() - started) / 1000).toFixed(1);
+    console.log(`[advisor] click→respuesta: ${totalS}s | motor: ${out.engine}` +
+      (out.elapsed_ms ? ` | gemini: ${(out.elapsed_ms / 1000).toFixed(1)}s` : ''));
+    // mínimo de animación SOLO si el agente realmente respondió (si cayó al determinístico, mostrar ya)
+    const fromGemini = out.engine && String(out.engine).startsWith('gemini');
+    if (fromGemini) {
       const left = AGENT_MIN_MS - (performance.now() - started);
       if (left > 0) await new Promise(r => setTimeout(r, left));
-      loader._stop();
+      if (myId !== ADV.reqId) return;
     }
-    renderResults(out);
+    ADV.loading = false; ADV.result = out; stopAdvLoader();
+    if (S.view === 'advisor') renderResults(out);   // si navegaste, queda guardado para cuando vuelvas
   } catch (e) {
-    if (loader) loader._stop();
-    res.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
-    res.append(backButton());
+    if (myId !== ADV.reqId) return;
+    ADV.loading = false; ADV.result = { error: e.message }; stopAdvLoader();
+    if (S.view === 'advisor') {
+      const res = $('#advResults'); if (res) { res.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`; res.append(backButton()); }
+    }
   }
+}
+
+function advReset() {                    // volver al formulario, descartar resultado en curso
+  ADV.reqId++; ADV.loading = false; ADV.result = null; stopAdvLoader();
 }
 
 function backButton() {
   const b = node('<div style="text-align:center;margin-top:8px"><button class="btn ghost">↩ Volver a buscar</button></div>');
   b.querySelector('button').addEventListener('click', () => {
+    advReset();
     const form = $('#advForm'); if (form) form.style.display = '';
-    $('#advResults').innerHTML = '';
+    const res = $('#advResults'); if (res) res.innerHTML = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
   return b;
 }
 
 function renderResults(out) {
-  const res = $('#advResults'); res.innerHTML = '';
+  const res = $('#advResults'); if (!res) return; res.innerHTML = '';
+  const form = $('#advForm'); if (form) form.style.display = 'none';   // los resultados pisan el form
   const engLabel = out.engine === 'rules' ? '⚙ determinístico' : (out.engine.startsWith('gemini') ? '🤖 Gemini' : '🤖 Claude');
   res.append(node(`<div class="rec-head">Seleccioné los mejores <b>${out.picks.length}</b> de <b>${out.considered}</b> que se adaptaban a lo que pediste <span class="rec-eng">${engLabel}</span></div>`));
   if (out.note) res.append(node(`<div class="gap-note" style="background:color-mix(in srgb,var(--brass) 12%,transparent);border-color:color-mix(in srgb,var(--brass) 30%,transparent)">${esc(out.note)}</div>`));
@@ -750,8 +789,13 @@ function renderResults(out) {
     c.querySelector('button').addEventListener('click', () => openDetail(g));
     res.append(c);
   });
-  // acciones: sorprendeme (elige una) + volver a buscar
+  // acciones: reintentar con Gemini (si cayó al determinístico) + sorprendeme + volver a buscar
   const actions = node('<div class="rec-actions"></div>');
+  if (out.engine === 'rules' && ADV.engine === 'agent') {
+    const retry = node('<button class="btn primary">🔁 Reintentar con Gemini</button>');
+    retry.addEventListener('click', () => runAdvisor());   // reusa tus respuestas, no recompletás nada
+    actions.append(retry);
+  }
   if (ADV.mode === 'play') {
     const sp = node('<button class="btn">🎲 Sorprendeme</button>');
     sp.addEventListener('click', () => {
@@ -764,6 +808,7 @@ function renderResults(out) {
   }
   const back = node('<button class="btn ghost">↩ Volver a buscar</button>');
   back.addEventListener('click', () => {
+    advReset();
     const form = $('#advForm'); if (form) form.style.display = '';
     res.innerHTML = ''; window.scrollTo({ top: 0, behavior: 'smooth' });
   });

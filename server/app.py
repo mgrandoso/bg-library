@@ -290,17 +290,19 @@ def export_csv(owner: int = 0):
 # ---------------- stats ----------------
 
 @app.get("/api/stats")
-def stats(owner: int = 0):
+def stats(owner: int = 0, source: str = "own"):
+    """Estadísticas del perfil. source='own' (biblioteca) | 'wishlist'."""
     conn = db.connect()
     owner = owner or db.get_me(conn)
     games = db.games_for_owner(conn, owner)
     conn.close()
     owned = [g for g in games if g.get("own")]
     wish = [g for g in games if g.get("wishlist")]
-    prof = advisor.collection_profile(owned)
+    sel = wish if source == "wishlist" else owned   # sobre qué conjunto se calculan las stats
+    prof = advisor.collection_profile(sel)
 
     by_type, by_designer, by_weight = {}, {}, [0] * 5
-    for g in owned:
+    for g in sel:
         for s in g.get("subdomains", []):
             by_type[s] = by_type.get(s, 0) + 1
         for d in g.get("designers", []):
@@ -317,15 +319,15 @@ def stats(owner: int = 0):
     highlights = {
         "coop": prof["coop"],
         "party": by_type.get("Party Games", 0),
-        "two": sum(1 for g in owned if 2 in (g.get("best_players") or [])),      # ideales para 2
-        "big": sum(1 for g in owned if any(has_num(g, n) for n in (5, 6, 7, 8))),
-        "quick": sum(1 for g in owned if 0 < (g.get("maxplaytime") or 0) <= 30),
-        "long": sum(1 for g in owned if (g.get("maxplaytime") or 0) >= 90),
+        "two": sum(1 for g in sel if 2 in (g.get("best_players") or [])),      # ideales para 2
+        "big": sum(1 for g in sel if any(has_num(g, n) for n in (5, 6, 7, 8))),
+        "quick": sum(1 for g in sel if 0 < (g.get("maxplaytime") or 0) <= 30),
+        "long": sum(1 for g in sel if (g.get("maxplaytime") or 0) >= 90),
     }
 
     # distribución por edad recomendada (editorial), en intervalos
     by_age = {"4–8": 0, "9–12": 0, "13+": 0}
-    for g in owned:
+    for g in sel:
         a = g.get("minage_publisher")
         if not a:
             continue
@@ -336,11 +338,11 @@ def stats(owner: int = 0):
         else:
             by_age["13+"] += 1
 
-    # resumen enriquecido de la colección
-    weights = [g["weight"] for g in owned if g.get("weight")]
-    times = sorted(g["maxplaytime"] for g in owned if g.get("maxplaytime"))
-    years = [int(g["yearpublished"]) for g in owned if str(g.get("yearpublished") or "").isdigit()]
-    mechanics = {m for g in owned for m in (g.get("mechanics") or [])}
+    # resumen enriquecido del conjunto
+    weights = [g["weight"] for g in sel if g.get("weight")]
+    times = sorted(g["maxplaytime"] for g in sel if g.get("maxplaytime"))
+    years = [int(g["yearpublished"]) for g in sel if str(g.get("yearpublished") or "").isdigit()]
+    mechanics = {m for g in sel for m in (g.get("mechanics") or [])}
     summary = {
         "avg_weight": round(sum(weights) / len(weights), 2) if weights else None,
         "median_time": times[len(times) // 2] if times else None,
@@ -351,6 +353,7 @@ def stats(owner: int = 0):
     }
 
     return {
+        "source": source,
         "counts": {"own": len(owned), "wishlist": len(wish)},
         "by_type": by_type, "by_weight": by_weight, "by_age": by_age,
         "weight_labels": advisor.WEIGHT_LABELS,

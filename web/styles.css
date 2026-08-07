@@ -314,6 +314,14 @@ select, .mini-select {
 /* dashboard: resumen + destacados */
 .panel.summary { display: flex; flex-direction: column; }
 .summary-nums { display: flex; align-items: center; gap: 22px; margin: 4px 0 0; }
+/* sub-tarjetas clickeables biblioteca/wishlist (mitad y mitad) */
+.src-toggle { display: flex; gap: 12px; }
+.src-card { flex: 1; background: var(--bg-2); border: 1px solid var(--line-soft); border-radius: 14px; padding: 16px 12px; text-align: center; transition: .15s; }
+.src-card:hover { border-color: var(--line); transform: translateY(-2px); }
+.src-card.on { border-color: var(--brass); background: color-mix(in srgb, var(--brass) 10%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brass) 35%, transparent); }
+.src-card .bigstat { font-size: 40px; }
+.src-l { font-size: 12.5px; color: var(--ink-soft); margin-top: 4px; font-weight: 500; }
+.src-hint { font-size: 11.5px; color: var(--ink-dim); text-align: center; margin-top: 10px; }
 .mini-stats { margin-top: 18px; padding-top: 15px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 10px; }
 .ms { display: flex; justify-content: space-between; align-items: baseline; font-size: 13.5px; }
 .ms-k { color: var(--ink-dim); }

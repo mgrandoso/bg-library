@@ -10,6 +10,7 @@ colección que ya tenés (own) y premia lo que llena un hueco.
 import json
 import os
 import re
+import time
 
 import db
 
@@ -432,10 +433,14 @@ def agent_pick(mode, answers, shortlist, limit):
 
     prompt = _build_prompt(mode, answers, shortlist)
     by_id = {g["objectid"]: (s, why, g) for s, why, g in shortlist}
+    t0 = time.time()
     try:
         result_text = _call_gemini(prompt, gem_key, gem_model)
-    except Exception:
+    except Exception as e:  # noqa
+        print(f"[advisor] gemini FALLO en {time.time()-t0:.1f}s: {e}", flush=True)
         return deterministico("Gemini no respondió; usé el determinístico.")
+    elapsed = time.time() - t0
+    print(f"[advisor] gemini {gem_model} OK en {elapsed:.1f}s ({mode})", flush=True)
     used = "gemini:" + gem_model
 
     parsed = _extract_json(result_text) or {"picks": []}
@@ -453,7 +458,8 @@ def agent_pick(mode, answers, shortlist, limit):
     if not picks:  # el LLM no devolvió ids válidos -> caemos al shortlist
         return {"engine": "rules", "mode": mode, "picks": _picks_from_scored(shortlist[:limit]),
                 "considered": len(shortlist), "note": "El agente no devolvió juegos válidos."}
-    return {"engine": used, "mode": mode, "picks": picks, "considered": len(shortlist)}
+    return {"engine": used, "mode": mode, "picks": picks, "considered": len(shortlist),
+            "elapsed_ms": int(elapsed * 1000)}
 
 
 def _call_gemini(prompt, key, model="gemini-3.6-flash"):
@@ -464,12 +470,22 @@ def _call_gemini(prompt, key, model="gemini-3.6-flash"):
     url = ("https://generativelanguage.googleapis.com/v1beta/models/"
            + model + ":generateContent?key=" + key)
 
-    def post(payload):
-        req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                     headers={"Content-Type": "application/json"})
-        # timeout = el doble del mínimo de animación (30s) = 60s; si tarda más, corta -> determinístico
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.loads(r.read().decode())
+    def post(payload, tries=3):
+        # timeout 60s (doble del mínimo de animación). Reintenta ante errores transitorios de Google.
+        last = None
+        for i in range(tries):
+            req = urllib.request.Request(url, data=json.dumps(payload).encode(),
+                                         headers={"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    return json.loads(r.read().decode())
+            except urllib.error.HTTPError as e:
+                if e.code in (429, 500, 503) and i < tries - 1:
+                    last = e
+                    time.sleep(1.5 * (i + 1))
+                    continue
+                raise
+        raise last
 
     base = {"contents": [{"parts": [{"text": prompt}]}]}
     # thinkingBudget -1 = razonamiento dinámico (usa lo que necesite, esfuerzo alto)
