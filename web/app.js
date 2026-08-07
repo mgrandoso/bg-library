@@ -51,6 +51,8 @@ const S = {
   filters: { q: '', types: new Set(), players: 0, time: '', weight: '', designer: '', sort: 'rank', sortDir: 1 },
   stats: null, geminiReady: false, panelSource: 'own',
 };
+/* estado del browse de BGG (paginado, persiste al navegar) */
+const BGGV = { games: [], page: 0, q: '', total: 0, hasMore: false, loading: false, owner: 0 };
 
 /* ================= arranque ================= */
 init();
@@ -111,6 +113,7 @@ function render() {
   const m = $('#main'); m.innerHTML = '';
   if (S.view === 'library') m.append(renderCollection('own'));
   else if (S.view === 'wishlist') m.append(renderCollection('wishlist'));
+  else if (S.view === 'bgg') renderBGG(m);
   else if (S.view === 'panel') renderPanel(m);
   else if (S.view === 'advisor') renderAdvisor(m);
 }
@@ -242,6 +245,61 @@ function refreshGrid(kind) {
   wrap.append(grid);
 }
 
+/* ================= BGG (browse del top, paginado) ================= */
+async function bggFetch(reset) {
+  if (BGGV.loading) return;
+  BGGV.loading = true;
+  if (reset) { BGGV.page = 0; BGGV.games = []; }
+  try {
+    const d = await api(`/bgg?owner=${S.owner}&page=${BGGV.page}&per=48&q=${encodeURIComponent(BGGV.q)}`);
+    BGGV.games = BGGV.games.concat(d.games);
+    BGGV.total = d.total; BGGV.hasMore = d.has_more; BGGV.owner = S.owner;
+  } catch (e) { toast('Error: ' + e.message); }
+  BGGV.loading = false;
+}
+
+let bggSearchT;
+async function renderBGG(m) {
+  const v = node('<div class="view"></div>');
+  const bar = node(`<div class="filters">
+    <div class="search">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+      <input id="bggSearch" placeholder="Buscar en el top de BGG…" value="${esc(BGGV.q)}">
+    </div>
+    <span class="count-tag" id="bggCount"></span>
+  </div>`);
+  bar.querySelector('#bggSearch').addEventListener('input', e => {
+    BGGV.q = e.target.value;
+    clearTimeout(bggSearchT);
+    bggSearchT = setTimeout(async () => { $('#bggGrid').innerHTML = '<div class="spinner"></div>'; await bggFetch(true); paintBGG(); }, 350);
+  });
+  v.append(bar);
+  v.append(node('<div class="grid" id="bggGrid"></div>'));
+  v.append(node('<div id="bggMore" style="text-align:center;margin:24px 0"></div>'));
+  m.innerHTML = ''; m.append(v);
+
+  // primera carga (o si cambió de perfil); si ya hay datos, se mantienen (posición/páginas)
+  if (BGGV.owner !== S.owner || (!BGGV.games.length && !BGGV.loading)) {
+    $('#bggGrid').innerHTML = '<div class="spinner"></div>';
+    await bggFetch(true);
+  }
+  paintBGG();
+}
+
+function paintBGG() {
+  const grid = $('#bggGrid'); if (!grid) return;
+  grid.innerHTML = '';
+  if (!BGGV.games.length) { grid.append(node('<div class="empty"><div class="ic">🎲</div><p>Sin resultados.</p></div>')); }
+  else BGGV.games.forEach(g => grid.append(card(g)));
+  const cnt = $('#bggCount'); if (cnt) cnt.textContent = `${BGGV.total.toLocaleString('es-AR')} juegos`;
+  const more = $('#bggMore'); if (!more) return; more.innerHTML = '';
+  if (BGGV.hasMore) {
+    const btn = node(`<button class="btn">Cargar más · ${BGGV.games.length} de ${BGGV.total.toLocaleString('es-AR')}</button>`);
+    btn.addEventListener('click', async () => { btn.textContent = 'Cargando…'; btn.disabled = true; BGGV.page++; await bggFetch(false); paintBGG(); });
+    more.append(btn);
+  }
+}
+
 /* ---------- card ---------- */
 function playerFit(g, n) {
   if (!n) return '';
@@ -257,7 +315,7 @@ function weightbar(w, big) {
 function card(g) {
   const t = (g.subdomains || [])[0];
   const c = node(`
-    <div class="card">
+    <div class="card" data-oid="${esc(g.objectid)}">
       <div class="cover" style="background-image:url('${esc(safeImg(g.image || g.thumb))}')">
         ${g.rank_overall ? `<span class="rankbadge">#${g.rank_overall}</span>` : ''}
         <span class="statebadge">${g.own ? '📦' : (g.wishlist ? '⭐' : '')}</span>
@@ -406,8 +464,15 @@ function stateControls(g) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch)
       });
       Object.assign(g, upd);
+      // reflejar el nuevo estado en las listas en memoria
       const i = S.games.findIndex(x => x.objectid === g.objectid);
       if (i >= 0) Object.assign(S.games[i], upd);
+      else if (upd.own || upd.wishlist) S.games.push(upd);   // agregado desde BGG -> entra a la colección
+      const j = BGGV.games.findIndex(x => x.objectid === g.objectid);
+      if (j >= 0) Object.assign(BGGV.games[j], { own: upd.own, wishlist: upd.wishlist });
+      // actualizar el badge de la card sin re-render (para BGG)
+      const card = document.querySelector(`.card[data-oid="${g.objectid}"]`);
+      if (card) card.querySelector('.statebadge').textContent = upd.own ? '📦' : (upd.wishlist ? '⭐' : '');
       toast('Guardado');
       await loadOwners();
     } catch (e) { toast('Error: ' + e.message); }
@@ -422,7 +487,8 @@ function stateControls(g) {
     const patch = { own: s === 'own' ? 1 : 0, wishlist: s === 'wishlist' ? 1 : 0 };
     box.querySelector('.prio').style.display = s === 'wishlist' ? 'flex' : 'none';
     await set(patch);
-    if ($('#main .grid')) render();   // refresca el grid si estás en biblioteca/wishlist
+    // en biblioteca/wishlist cambia la membresía -> re-render; en BGG el badge ya se actualizó
+    if (S.view === 'library' || S.view === 'wishlist') render();
   }));
   box.querySelectorAll('.stars .s').forEach(st => st.addEventListener('click', async () => {
     const stars = +st.dataset.p; const prio = 6 - stars; // 5★ = prio1

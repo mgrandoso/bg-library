@@ -90,14 +90,44 @@ def delete_owner(oid: int):
 
 @app.get("/api/games")
 def list_games(owner: int = 0):
+    """Solo tu colección (own + wishlist). El catálogo completo NO viaja acá; el
+    browse del top vive en /api/bgg (paginado). Mantiene el payload liviano."""
     conn = db.connect()
     owner = owner or db.get_me(conn)
-    games = db.games_for_owner(conn, owner)
+    games = [g for g in db.games_for_owner(conn, owner) if g.get("own") or g.get("wishlist")]
     conn.close()
-    # la descripción larga se pide on-demand en la ficha (aliviana el payload del grid)
     for g in games:
-        g.pop("description", None)
+        g.pop("description", None)   # descripción larga on-demand en la ficha
     return {"owner": owner, "games": games}
+
+
+@app.get("/api/bgg")
+def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = ""):
+    """Browse del top de BGG (por rank) con tu estado (own/wishlist) por juego. Paginado."""
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    where = "g.rank_overall IS NOT NULL AND g.rank_overall > 0"
+    join_params = [owner]
+    where_params = []
+    if q.strip():
+        where += " AND g.name LIKE ? COLLATE NOCASE"
+        where_params.append(f"%{q.strip()}%")
+    total = conn.execute(f"SELECT COUNT(*) c FROM games g WHERE {where}", where_params).fetchone()["c"]
+    rows = conn.execute(f"""
+        SELECT g.*, h.own, h.wishlist, h.wishlist_priority
+        FROM games g LEFT JOIN holdings h ON h.objectid=g.objectid AND h.owner_id=?
+        WHERE {where}
+        ORDER BY g.rank_overall ASC
+        LIMIT ? OFFSET ?
+    """, join_params + where_params + [per, page * per]).fetchall()
+    conn.close()
+    games = []
+    for r in rows:
+        g = db.row_to_game(r)
+        g.pop("description", None)
+        games.append(g)
+    return {"games": games, "page": page, "per": per, "total": total,
+            "has_more": (page + 1) * per < total}
 
 
 @app.get("/api/games/{oid}/description")

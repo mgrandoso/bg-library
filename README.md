@@ -31,6 +31,7 @@ Estética de **mesa de juego premium**, responsive, con tema claro y oscuro.
   renombrar, borrar). En cada ficha ves quién tiene el juego.
 - 🔄 **Import / Export / Actualizar** — importá un CSV de BoardGameGeek *o* un backup de esta app
   (ambos formatos); exportá el estado actual; refrescá rankings cuando pasa el tiempo.
+- 🏆 **BGG** — navegá el **top-5000 de BoardGameGeek** por ranking (paginado, con buscador), con tus juegos marcados ⭐/📦 y alta directa a biblioteca/wishlist.
 - ➕ **Agregar juego** — buscás por nombre o pegás el ID / URL de BGG y trae todos los datos solo.
 
 ## Galería
@@ -40,7 +41,8 @@ Estética de **mesa de juego premium**, responsive, con tema claro y oscuro.
   <img src="docs/panel.png" alt="Panel de estadísticas" width="45%">
 </p>
 <p align="center">
-  <img src="docs/detail.png" alt="Ficha de un juego" width="60%">
+  <img src="docs/bgg.png" alt="Browse del top de BGG" width="45%">
+  <img src="docs/detail.png" alt="Ficha de un juego" width="45%">
 </p>
 
 ## Correr
@@ -60,6 +62,19 @@ El modo **agente** usa **Google Gemini** (tiene tier gratis). Conseguí una API 
 [Google AI Studio](https://aistudio.google.com/apikey) y pegala en **⚙ Configuración**. Sin key, el
 Advisor funciona igual en modo determinístico (el agente queda deshabilitado hasta configurarla).
 
+## Catálogo BGG pre-cargado (top-5000)
+
+El repo ya viene con **`data/bgg_top.json`**: el **top-5000 de BGG por ranking, pre-seedeado a agosto 2026**
+(vía la API pública de [recommend.games](https://recommend.games)). Así, quien clona el repo arranca
+con el catálogo cargado **sin bajar nada** — `python server/seed.py` lo mete en la base.
+
+**Mantenerlo al día es simple** y en gran parte automático:
+- Cualquier juego que marques como *tengo/quiero* o que agregues por búsqueda **entra al catálogo** aunque
+  no esté en el preseed.
+- Para refrescar el top completo (juegos que entraron al ranking, cambios de rank): re-correr
+  `python build/preseed_top.py 5000` regenera el JSON; `seed.py` aplica el diff. El **top-1000 es muy
+  estable**; la franja baja rota unos cientos por año, así que un refresh cada 6-12 meses alcanza.
+
 ## De dónde salen los datos
 
 BoardGameGeek cerró su XML API oficial (requiere token). Ludoteca usa la **API JSON pública del
@@ -73,7 +88,8 @@ frontend de BGG** (`api.geekdo.com`: `geekitems` + `dynamicinfo`), que trae imá
 server/   app.py (API)  db.py (SQLite)  bgg.py (geekdo)  advisor.py (recomendador)
           seed.py  appconfig.py  tests.py
 web/      index.html  styles.css  app.js
-build/    enrich.py  backfill_desc.py
+build/    enrich.py  backfill_desc.py  preseed_top.py (top-5000 BGG)
+data/     bgg_data.json (colección enriquecida) · bgg_top.json (top-5000 pre-seed)
 docs/     capturas del README
 ```
 

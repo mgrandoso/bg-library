@@ -74,13 +74,23 @@ def import_csv(text, owner_id, mode="both", bgg_lookup=None, fetch_missing=False
     return {"updated": updated, "added_games": added_games, "skipped": skipped}
 
 
+BGG_TOP = os.path.join(ROOT, "data", "bgg_top.json")
+
+
 def seed():
     db.init()
     conn = db.connect()
     me = db.get_me(conn)
     conn.close()
-    bgg = json.load(open(BGG_JSON, encoding="utf-8")) if os.path.exists(BGG_JSON) else {}
+
     conn = db.connect()
+    # 1) catálogo BGG top (recommend.games) — se pisa luego en el overlap con los datos geekdo
+    top = json.load(open(BGG_TOP, encoding="utf-8")) if os.path.exists(BGG_TOP) else {}
+    for oid, rec in top.items():
+        db.upsert_bgg(conn, rec)
+    print(f"BGG top cargados: {len(top)}")
+    # 2) datos geekdo de la colección propia (más completos: sobreescriben el overlap)
+    bgg = json.load(open(BGG_JSON, encoding="utf-8")) if os.path.exists(BGG_JSON) else {}
     n = 0
     for oid, rec in bgg.items():
         if rec.get("error"):
@@ -89,7 +99,7 @@ def seed():
         n += 1
     conn.commit()
     conn.close()
-    print(f"BGG cargados: {n}")
+    print(f"BGG colección (geekdo) cargados: {n}")
     if os.path.exists(CSV_PATH):
         text = open(CSV_PATH, encoding="utf-8").read()
         res = import_csv(text, me, mode="both", bgg_lookup=bgg)
