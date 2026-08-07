@@ -463,7 +463,6 @@ async function renderPanel(m) {
       <button class="src-card ${src === 'wishlist' ? 'on' : ''}" data-src="wishlist">
         <div class="bigstat" style="color:var(--m-party)">${st.counts.wishlist}</div><div class="src-l">⭐ en tu wishlist</div></button>
     </div>
-    <div class="src-hint">Mostrando datos de <b>${src === 'wishlist' ? 'tu wishlist' : 'tu biblioteca'}</b> · tocá para cambiar</div>
     <div class="mini-stats">
       <div class="ms"><span class="ms-k">Complejidad media</span><span class="ms-v">${sm.avg_weight ? sm.avg_weight + ' / 5' : '—'}</span></div>
       <div class="ms"><span class="ms-k">Duración típica</span><span class="ms-v">${sm.median_time ? sm.median_time + ' min' : '—'}</span></div>
