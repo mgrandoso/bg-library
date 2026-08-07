@@ -22,6 +22,16 @@ app = FastAPI(title="BG Library")
 db.init()
 
 
+@app.middleware("http")
+async def no_cache_assets(request, call_next):
+    """App local en evolución: que el navegador nunca sirva HTML/JS/CSS viejo cacheado."""
+    resp = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.endswith((".js", ".css", ".html")):
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    return resp
+
+
 def _me():
     conn = db.connect()
     me = db.get_me(conn)
@@ -322,7 +332,7 @@ def stats(owner: int = 0, source: str = "own"):
         "two": sum(1 for g in sel if 2 in (g.get("best_players") or [])),      # ideales para 2
         "big": sum(1 for g in sel if any(has_num(g, n) for n in (5, 6, 7, 8))),
         "quick": sum(1 for g in sel if 0 < (g.get("maxplaytime") or 0) <= 30),
-        "long": sum(1 for g in sel if (g.get("maxplaytime") or 0) >= 90),
+        "long": sum(1 for g in sel if (g.get("maxplaytime") or 0) >= 120),   # para toda la noche
     }
 
     # distribución por edad recomendada (editorial), en intervalos

@@ -30,7 +30,7 @@ const SUBDOMAIN = {
   'Customizable Games': ['Coleccionable', 'var(--m-custom)'],
   "Children's Games": ['Infantil', 'var(--m-children)'],
 };
-const WEIGHT_LABELS = ['Ligero', 'Medio-ligero', 'Medio', 'Medio-pesado', 'Pesado'];
+const WEIGHT_LABELS = ['Liviana', 'Media-liviana', 'Media', 'Media-pesada', 'Pesada'];
 function weightBucket(w) {
   if (!w) return null;
   if (w < 1.5) return 0; if (w < 2.1) return 1; if (w < 2.7) return 2; if (w < 3.4) return 3; return 4;
@@ -136,7 +136,8 @@ function currentList(kind) {
     else if (s === 'weight') cmp = (b.weight || 0) - (a.weight || 0);
     else if (s === 'year') cmp = (+b.yearpublished || 0) - (+a.yearpublished || 0);
     else if (s === 'name') cmp = (a.name || '').localeCompare(b.name || '');
-    else if (s === 'prio') cmp = (a.wishlist_priority || 3) - (b.wishlist_priority || 3);
+    else if (s === 'prio') cmp = ((a.wishlist_priority || 3) - (b.wishlist_priority || 3))
+      || ((a.rank_overall || 1e9) - (b.rank_overall || 1e9));   // empate de prioridad -> mejor rank BGG primero
     else if (s === 'time') cmp = (a.maxplaytime || 0) - (b.maxplaytime || 0);
     return cmp * dir;
   });
@@ -482,9 +483,9 @@ async function renderPanel(m) {
     ['🤝', h.coop, 'cooperativos', 'var(--m-abstract)'],
     ['🎉', h.party, 'de fiesta', 'var(--m-party)'],
     ['👥', h.two, 'ideales para 2', 'var(--m-strategy)'],
-    ['🎪', h.big, 'para grupo (5+)', 'var(--m-thematic)'],
+    ['🎪', h.big, 'para grupos grandes (5+)', 'var(--m-thematic)'],
     ['⚡', h.quick, 'rápidos (≤30′)', 'var(--brass)'],
-    ['🌙', h.long, 'de la tarde (90’+)', 'var(--m-war)'],
+    ['🌙', h.long, 'para toda la noche (120′+)', 'var(--m-war)'],
   ];
   grid.append(node(`<div class="panel highlights" style="grid-column:span 8">
     <h3>Destacados de ${src === 'wishlist' ? 'tu wishlist' : 'tu biblioteca'}</h3>

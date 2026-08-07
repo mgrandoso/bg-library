@@ -20,7 +20,7 @@ WEIGHT_BANDS = {
     "medium": (1.9, 2.7),
     "heavy": (2.7, 5.0),
 }
-WEIGHT_LABELS = ["Ligero", "Medio-ligero", "Medio", "Medio-pesado", "Pesado"]
+WEIGHT_LABELS = ["Liviana", "Media-liviana", "Media", "Media-pesada", "Pesada"]
 
 # dependencia de idioma/lectura -> nivel coloquial
 LANG_LEVEL = {
