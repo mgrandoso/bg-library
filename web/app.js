@@ -454,7 +454,6 @@ async function renderPanel(m) {
   const grid = node('<div class="stat-grid"></div>');
 
   // --- Tu colección: dos sub-tarjetas clickeables (biblioteca / wishlist) que cambian la fuente ---
-  const yr = (sm.year_min && sm.year_max) ? `${sm.year_min}–${sm.year_max}` : '—';
   const summary = node(`<div class="panel summary" style="grid-column:span 4">
     <h3>Tu colección</h3>
     <div class="src-toggle">
@@ -468,7 +467,6 @@ async function renderPanel(m) {
       <div class="ms"><span class="ms-k">Duración típica</span><span class="ms-v">${sm.median_time ? sm.median_time + ' min' : '—'}</span></div>
       <div class="ms"><span class="ms-k">Diseñadores</span><span class="ms-v">${sm.designers || 0}</span></div>
       <div class="ms"><span class="ms-k">Mecánicas distintas</span><span class="ms-v">${sm.mechanics || 0}</span></div>
-      <div class="ms"><span class="ms-k">Años de edición</span><span class="ms-v">${yr}</span></div>
     </div>
   </div>`);
   summary.querySelectorAll('.src-card').forEach(b => b.addEventListener('click', () => {
