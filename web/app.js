@@ -190,7 +190,9 @@ function renderFilters(kind) {
   const sortOpts = kind === 'wishlist'
     ? [['prio', 'Prioridad'], ['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['year', 'Año'], ['name', 'Nombre']]
     : [['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['time', 'Duración'], ['year', 'Año'], ['name', 'Nombre']];
-  if (kind === 'wishlist' && f.sort === 'rank') f.sort = 'prio';
+  if (kind === 'wishlist' && f.sort === 'rank') f.sort = 'prio';   // wishlist prefiere prioridad
+  const validSorts = sortOpts.map(o => o[0]);
+  if (!validSorts.includes(f.sort)) f.sort = validSorts[0];        // criterio no válido para esta vista -> default
   const sort = node(`<select title="Ordenar por">${sortOpts.map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>Orden: ${l}</option>`).join('')}</select>`);
   sort.addEventListener('change', e => { f.sort = e.target.value; refreshGrid(kind); });
   bar.append(sort);
@@ -601,6 +603,13 @@ function renderAdvBody() {
   }
 
   const form = node('<div id="advForm"></div>');
+  // chip de la ocasión elegida (modo play), con opción de cambiarla
+  if (ADV.mode === 'play' && ADV.occasion) {
+    const o = OCCASIONS[ADV.occasion];
+    const chip = node(`<div class="occ-chip"><span class="occ-chip-l">${o ? `${o.ic} <b>${esc(o.t)}</b>` : 'Sin ocasión — respondiendo libre'}</span><button class="occ-change">${o ? '↺ cambiar ocasión' : '＋ elegir ocasión'}</button></div>`);
+    chip.querySelector('.occ-change').addEventListener('click', () => { advReset(); ADV.occasion = null; ADV.answers = {}; renderAdvBody(); });
+    form.append(chip);
+  }
   const qs = ADV.mode === 'play' ? PLAY_Q : BUY_Q;
   qs.forEach(q => form.append(renderQ(q)));
   form.append(engineSwitch());
@@ -660,7 +669,7 @@ function engineSwitch() {
   const hint = box.querySelector('#engHint');
   const setHint = () => {
     if (!S.geminiReady) hint.innerHTML = 'Activá el agente con IA cargando tu API key de Gemini (gratis) en <b>⚙</b>.';
-    else hint.textContent = ADV.engine === 'agent' ? 'Razona con Gemini sobre 20 candidatos de tu colección.' : 'Puntuación transparente sobre los datos.';
+    else hint.textContent = ADV.engine === 'agent' ? `Razona con Gemini sobre ${shortlistSize(poolTotal())} candidatos de tu colección.` : 'Puntuación transparente sobre los datos.';
   };
   setHint();
   box.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
@@ -677,7 +686,7 @@ function engineSwitch() {
 // Secuencia de frases (5 s c/u → ~25 s). Si tarda más, itera AGENT_TAIL.
 const AGENT_SEQ = [
   'Buscando las mejores sugerencias, bancame un minuto 🎲',  // 0–5 s
-  'Barajando los 20 candidatos de tu colección…',            // 5–10 s
+  'Barajando los candidatos de tu colección…',               // 5–10 s
   'Viendo qué encaja mejor con tu grupo…',                   // 10–15 s
   'Ya casi está…',                                           // 15–20 s
   'Afinando la recomendación…',                              // 20–25 s
@@ -686,9 +695,18 @@ const AGENT_TAIL = ['Dame unos segundos más…', 'Afinando la recomendación…
 const AGENT_STEP_MS = 5000;   // cada frase 5s (la secuencia cubre ~25s, luego alterna la cola)
 const AGENT_MIN_MS = 25000;   // mínimo 25s (= 5 frases × 5s); si el modelo tarda más, se sigue esperando
 
+// cuántos candidatos ve el agente: ~15% del pool, tier más cercano de [15..50], tope 50 (espeja el backend)
+const SHORTLIST_TIERS = [15, 20, 25, 30, 35, 40, 45, 50];
+function shortlistSize(total) {
+  if (total <= 15) return Math.max(1, total);
+  const t = 0.15 * total;
+  return Math.min(SHORTLIST_TIERS.reduce((a, b) => Math.abs(b - t) < Math.abs(a - t) ? b : a), 50);
+}
+function poolTotal() { return S.games.filter(g => ADV.mode === 'buy' ? g.wishlist : g.own).length; }
+
 function agentLoader() {
   const faces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-  const el = node(`<div class="agent-loading"><div class="dice-roll"><span>⚀</span><span>⚄</span></div><div class="agent-msg">${AGENT_SEQ[0]}</div><div class="agent-sub">El agente analiza 20 candidatos de tu colección</div></div>`);
+  const el = node(`<div class="agent-loading"><div class="dice-roll"><span>⚀</span><span>⚄</span></div><div class="agent-msg">${AGENT_SEQ[0]}</div><div class="agent-sub">El agente analiza ${shortlistSize(poolTotal())} candidatos de tu colección</div></div>`);
   const dice = el.querySelectorAll('.dice-roll span'); const msg = el.querySelector('.agent-msg');
   let fi = 0, step = 0;
   const t1 = setInterval(() => { fi++; dice[0].textContent = faces[fi % 6]; dice[1].textContent = faces[(fi + 3) % 6]; }, 130);
@@ -816,7 +834,7 @@ function renderResults(out) {
   // transparencia: los N candidatos que analizó el determinístico (lista simple)
   if (out.candidates && out.candidates.length) {
     const det = node(`<details class="candlist">
-      <summary>Ver los ${out.candidates.length} candidatos que analicé <span>(155 → ${out.candidates.length} determinístico → ${out.picks.length} agente)</span></summary>
+      <summary>Ver los ${out.candidates.length} candidatos que analicé <span>(${poolTotal()} → ${out.candidates.length} determinístico → ${out.picks.length} agente)</span></summary>
       <ol>${out.candidates.map(c => `<li class="${c.picked ? 'picked' : ''}">${esc(c.name)}${(c.subdomains || [])[0] ? ` <small>· ${typeEs(c.subdomains[0])}</small>` : ''}${c.picked ? ' <b>✓ elegido</b>' : ''}</li>`).join('')}</ol>
     </details>`);
     res.append(det);

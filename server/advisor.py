@@ -297,6 +297,18 @@ def score_buy(g, a, prof):
 
 # ---------------- entrada principal ----------------
 
+SHORTLIST_TIERS = [15, 20, 25, 30, 35, 40, 45, 50]
+
+
+def shortlist_size(total):
+    """~15% del pool, redondeado al tier más cercano, tope 50. Colecciones chicas: todo."""
+    if total <= SHORTLIST_TIERS[0]:
+        return max(1, total)
+    target = 0.15 * total
+    snapped = min(SHORTLIST_TIERS, key=lambda t: abs(t - target))
+    return min(snapped, 50)
+
+
 def recommend(mode, answers, engine="rules", limit=4, owner_id=None):
     conn = db.connect()
     if owner_id is None:
@@ -322,7 +334,8 @@ def recommend(mode, answers, engine="rules", limit=4, owner_id=None):
     scored.sort(key=lambda x: x[0], reverse=True)
 
     if engine == "agent":
-        return agent_pick(mode, answers, scored[:20], limit)
+        k = shortlist_size(len(pool))     # cuántos candidatos ve el agente (según el tamaño del pool)
+        return agent_pick(mode, answers, scored[:k], limit)
 
     return {"engine": "rules", "mode": mode,
             "picks": _picks_from_scored(scored[:limit]), "considered": len(scored)}
@@ -397,6 +410,10 @@ Candidatos (prefiltrados por relevancia; evaluá TODOS y elegí los mejores):
 {chr(10).join(games_txt)}
 
 Analizá los {len(shortlist)} candidatos y elegí los 5 mejores para esta situación.
+IMPORTANTE: el ORDEN en que los devolvés ES tu ranking de recomendación. Poné PRIMERO el que
+MÁS recomendás para esta situación y así en orden decreciente, según tu evaluación de la ocasión,
+lo que agregó el usuario en sus respuestas, y las estadísticas de cada juego (jugadores, tiempo,
+complejidad, tema, mecánicas).
 Para cada uno, un pitch en español rioplatense (es-AR), 3-4 frases, coloquial y concreto:
 contá brevemente DE QUÉ VA el juego y su dinámica, y cerrá relacionándolo con lo que pidió.
 
