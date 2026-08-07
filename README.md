@@ -84,3 +84,7 @@ python server/tests.py
 ```
 
 Notas de arquitectura y de la revisión de calidad (Clean Code): ver [`REVIEW.md`](REVIEW.md).
+
+## Licencia
+
+[MIT](LICENSE) © 2026 Manuel Grandoso.
