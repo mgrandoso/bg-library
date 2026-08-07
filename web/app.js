@@ -684,7 +684,7 @@ const AGENT_SEQ = [
 ];
 const AGENT_TAIL = ['Dame unos segundos más…', 'Afinando la recomendación…'];
 const AGENT_STEP_MS = 5000;   // cada frase 5s (la secuencia cubre ~25s, luego alterna la cola)
-const AGENT_MIN_MS = 30000;   // mínimo 30s de animación; si el modelo tarda más, se sigue esperando
+const AGENT_MIN_MS = 25000;   // mínimo 25s (= 5 frases × 5s); si el modelo tarda más, se sigue esperando
 
 function agentLoader() {
   const faces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
@@ -812,6 +812,15 @@ function renderResults(out) {
   });
   actions.append(back);
   res.append(actions);
+
+  // transparencia: los N candidatos que analizó el determinístico (lista simple)
+  if (out.candidates && out.candidates.length) {
+    const det = node(`<details class="candlist">
+      <summary>Ver los ${out.candidates.length} candidatos que analicé <span>(155 → ${out.candidates.length} determinístico → ${out.picks.length} agente)</span></summary>
+      <ol>${out.candidates.map(c => `<li class="${c.picked ? 'picked' : ''}">${esc(c.name)}${(c.subdomains || [])[0] ? ` <small>· ${typeEs(c.subdomains[0])}</small>` : ''}${c.picked ? ' <b>✓ elegido</b>' : ''}</li>`).join('')}</ol>
+    </details>`);
+    res.append(det);
+  }
 }
 
 /* ================= AGREGAR juego ================= */

@@ -458,8 +458,13 @@ def agent_pick(mode, answers, shortlist, limit):
     if not picks:  # el LLM no devolvió ids válidos -> caemos al shortlist
         return {"engine": "rules", "mode": mode, "picks": _picks_from_scored(shortlist[:limit]),
                 "considered": len(shortlist), "note": "El agente no devolvió juegos válidos."}
+    # los candidatos que analizó el determinístico (en su orden), marcando cuáles eligió el agente
+    picked_ids = {p["objectid"] for p in picks}
+    candidates = [{"objectid": g["objectid"], "name": g["name"],
+                   "subdomains": g.get("subdomains", []), "picked": g["objectid"] in picked_ids}
+                  for _s, _why, g in shortlist]
     return {"engine": used, "mode": mode, "picks": picks, "considered": len(shortlist),
-            "elapsed_ms": int(elapsed * 1000)}
+            "elapsed_ms": int(elapsed * 1000), "candidates": candidates}
 
 
 def _call_gemini(prompt, key, model="gemini-3.6-flash"):

@@ -422,6 +422,16 @@ select, .mini-select {
 .rec-head b { color: var(--ink); }
 .rec-eng { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line-soft); color: var(--ink-soft); }
 .rec-actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+.candlist { margin-top: 20px; background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 4px 16px; }
+.candlist summary { cursor: pointer; padding: 12px 4px; font-weight: 600; font-size: 14px; color: var(--ink-soft); }
+.candlist summary span { color: var(--ink-dim); font-weight: 400; font-size: 12.5px; }
+.candlist summary:hover { color: var(--ink); }
+.candlist ol { margin: 4px 0 14px; padding-left: 30px; columns: 2; }
+.candlist li { font-size: 13.5px; color: var(--ink-dim); padding: 3px 0; break-inside: avoid; }
+.candlist li small { color: var(--ink-dim); opacity: .7; }
+.candlist li.picked { color: var(--ink); font-weight: 600; }
+.candlist li.picked b { color: var(--good); font-size: 12px; }
+@media (max-width: 720px) { .candlist ol { columns: 1; } }
 
 /* pantalla de espera del agente */
 .agent-loading { text-align: center; padding: 48px 20px; animation: fade .3s; }
