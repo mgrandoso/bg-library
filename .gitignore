@@ -1,0 +1,16 @@
+# base de datos local (estado editable)
+bg.db
+bg.db-wal
+bg.db-shm
+
+# config local con API key
+config.json
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# datos enriquecidos son grandes pero regenerables; se dejan versionados por comodidad
+# (comentar la línea de abajo si preferís no versionar el cache)
+# data/bgg_data.json
