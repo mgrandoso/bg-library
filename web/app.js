@@ -193,6 +193,13 @@ function renderFilters(kind) {
   sort.addEventListener('change', e => { f.sort = e.target.value; refreshGrid(kind); });
   bar.append(sort);
 
+  const clearBtn = node('<button class="chip clear-filters" id="clearFilters">✕ Limpiar filtros</button>');
+  clearBtn.addEventListener('click', () => {
+    S.filters = { q: '', types: new Set(), players: 0, time: '', weight: '', designer: '', sort: f.sort };
+    render();
+  });
+  clearBtn.style.display = hasActiveFilters() ? 'inline-flex' : 'none';
+  bar.append(clearBtn);
   bar.append(node(`<span class="count-tag" id="countTag"></span>`));
 
   // chips de tipo
@@ -206,11 +213,16 @@ function renderFilters(kind) {
   return bar;
 }
 
+function hasActiveFilters() {
+  const f = S.filters;
+  return !!(f.q || f.types.size || f.players || f.time || f.weight || f.designer);
+}
 function refreshGrid(kind) {
   const list = currentList(kind);
   const wrap = $('#main .view');
   const old = wrap.querySelector('.grid, .empty'); if (old) old.remove();
   const tag = $('#countTag'); if (tag) tag.textContent = `${list.length} juego${list.length === 1 ? '' : 's'}`;
+  const cb = $('#clearFilters'); if (cb) cb.style.display = hasActiveFilters() ? 'inline-flex' : 'none';
   if (!list.length) { wrap.append(node(`<div class="empty"><div class="ic">🎲</div><p>No hay juegos que coincidan.</p></div>`)); return; }
   const grid = node('<div class="grid"></div>');
   list.forEach(g => grid.append(card(g)));
@@ -286,7 +298,12 @@ function openDetail(g) {
   const ageCom = g.age_community ? esc(g.age_community) : '—';
   const inner = node(`<div>
     <div class="detail-hero">
-      <div class="cover"><img src="${esc(safeImg(g.image))}" alt=""></div>
+      <div class="detail-side">
+        <div class="cover"><img src="${esc(safeImg(g.image))}" alt=""></div>
+        ${g.designers && g.designers.length ? `<div><div class="section-h" style="margin-top:8px">Diseño</div><div class="chips-line" id="desigChips">${g.designers.map(d => `<span class="tagchip click" data-d="${esc(d.name)}">🖋 ${esc(d.name)}</span>`).join('')}</div></div>` : ''}
+        ${g.owners_owning && g.owners_owning.length ? `<div><div class="section-h">Lo tienen</div><div class="chips-line">${g.owners_owning.map(n => `<span class="tagchip">👤 ${esc(n)}</span>`).join('')}</div></div>` : ''}
+        <div style="margin-top:auto;padding-top:6px"><a href="${esc(safeImg(g.href) || '#')}" target="_blank" rel="noopener">Ver en BoardGameGeek ↗</a></div>
+      </div>
       <div>
         <div class="detail-title">${esc(g.name)}</div>
         <div class="detail-sub">${esc(g.yearpublished || '')} ${g.rank_overall ? '· Ranking BGG #' + g.rank_overall : ''} ${g.rating_avg ? '· ★ ' + (+g.rating_avg).toFixed(1) : ''}</div>
@@ -303,14 +320,9 @@ function openDetail(g) {
         <div class="section-h">Jugadores <span style="text-transform:none;font-weight:500">(👑 mejor · <span style="color:var(--brass-2)">recomendado</span>)</span></div>
         ${playersViz(g)}
         <div class="spec" style="margin-top:14px"><div class="k">Dependencia del idioma</div><div class="v" style="font-size:14px">${esc(LANG[g.language_dependence] || g.language_dependence || '—')}</div></div>
+        ${g.categories && g.categories.length ? `<div class="section-h">Categorías</div><div class="chips-line">${g.categories.map(c => `<span class="tagchip">${esc(c)}</span>`).join('')}</div>` : ''}
+        ${g.mechanics && g.mechanics.length ? `<div class="section-h">Mecánicas</div><div class="chips-line">${g.mechanics.slice(0, 12).map(c => `<span class="tagchip">${esc(c)}</span>`).join('')}</div>` : ''}
       </div>
-    </div>
-    <div style="padding:0 24px 8px">
-      ${g.designers && g.designers.length ? `<div class="section-h">Diseño</div><div class="chips-line" id="desigChips">${g.designers.map(d => `<span class="tagchip click" data-d="${esc(d.name)}">🖋 ${esc(d.name)}</span>`).join('')}</div>` : ''}
-      ${g.categories && g.categories.length ? `<div class="section-h">Categorías</div><div class="chips-line">${g.categories.map(c => `<span class="tagchip">${esc(c)}</span>`).join('')}</div>` : ''}
-      ${g.mechanics && g.mechanics.length ? `<div class="section-h">Mecánicas</div><div class="chips-line">${g.mechanics.slice(0, 12).map(c => `<span class="tagchip">${esc(c)}</span>`).join('')}</div>` : ''}
-      ${g.owners_owning && g.owners_owning.length ? `<div class="section-h">Lo tienen</div><div class="chips-line">${g.owners_owning.map(n => `<span class="tagchip">👤 ${esc(n)}</span>`).join('')}</div>` : ''}
-      <div style="margin-top:16px"><a href="${esc(safeImg(g.href) || '#')}" target="_blank" rel="noopener">Ver en BoardGameGeek ↗</a></div>
     </div>
     <div class="state-bar"></div>
   </div>`);

@@ -148,6 +148,8 @@ select, .mini-select {
   background: var(--bg-2); color: var(--ink); border: 1px solid var(--line);
   border-radius: 10px; padding: 9px 12px; font-size: 13.5px; outline: none; cursor: pointer;
 }
+.chip.clear-filters { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); color: var(--danger); font-weight: 700; }
+.chip.clear-filters:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 .count-tag { color: var(--ink-dim); font-size: 13px; font-weight: 600; margin-left: auto; white-space: nowrap; }
 
 .type-chips { display: flex; gap: 7px; flex-wrap: wrap; width: 100%; }
@@ -227,6 +229,8 @@ select, .mini-select {
   background: color-mix(in srgb, var(--bg) 60%, transparent); color: var(--ink); font-size: 18px;
 }
 .detail-hero { display: grid; grid-template-columns: 260px 1fr; gap: 24px; padding: 24px; }
+.detail-side { display: flex; flex-direction: column; gap: 20px; }
+.detail-side .section-h { margin: 0 0 8px; }
 .detail-hero .cover { border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card); align-self: start; }
 .detail-hero .cover img { width: 100%; height: auto; }
 .detail-title { font-size: 27px; line-height: 1.1; }
