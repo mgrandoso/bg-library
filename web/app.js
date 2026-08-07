@@ -365,8 +365,8 @@ function stateControls(g) {
   const box = node(`<div style="display:flex;flex-direction:column;gap:12px;width:100%">
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
       <div class="seg">
-        <button data-s="own" class="${g.own ? 'on' : ''}">📦 La tengo</button>
-        <button data-s="wishlist" class="${g.wishlist ? 'on' : ''}">⭐ La quiero</button>
+        <button data-s="own" class="${g.own ? 'on' : ''}">📦 Lo tengo</button>
+        <button data-s="wishlist" class="${g.wishlist ? 'on' : ''}">⭐ Lo quiero</button>
         <button data-s="none" class="${!g.own && !g.wishlist ? 'on' : ''}">Ninguno</button>
       </div>
       <div class="prio ${g.wishlist ? '' : 'hidden'}" style="display:${g.wishlist ? 'flex' : 'none'};align-items:center;gap:8px">
@@ -388,12 +388,16 @@ function stateControls(g) {
     } catch (e) { toast('Error: ' + e.message); }
   }
   box.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', async () => {
-    box.querySelectorAll('.seg button').forEach(x => x.classList.remove('on')); b.classList.add('on');
     const s = b.dataset.s;
+    // "Ninguno" saca el juego de tu biblioteca/wishlist (no borra los datos, es reversible)
+    if (s === 'none' && (g.own || g.wishlist)) {
+      if (!confirm(`¿Sacar "${g.name}" de tu ludoteca?\n\nSale de tu biblioteca y wishlist. No se borra: podés volver a agregarlo cuando quieras.`)) return;
+    }
+    box.querySelectorAll('.seg button').forEach(x => x.classList.remove('on')); b.classList.add('on');
     const patch = { own: s === 'own' ? 1 : 0, wishlist: s === 'wishlist' ? 1 : 0 };
     box.querySelector('.prio').style.display = s === 'wishlist' ? 'flex' : 'none';
     await set(patch);
-    if (S.view !== 'library' || true) { /* refrescamos grid si está */ if ($('#main .grid')) render(); }
+    if ($('#main .grid')) render();   // refresca el grid si estás en biblioteca/wishlist
   }));
   box.querySelectorAll('.stars .s').forEach(st => st.addEventListener('click', async () => {
     const stars = +st.dataset.p; const prio = 6 - stars; // 5★ = prio1
@@ -750,7 +754,7 @@ function openAdd() {
     <div class="field"><input id="addQ" placeholder="Ej: Wingspan, o 266192, o el link de BGG…" autofocus></div>
     <div style="display:flex;gap:8px;margin-bottom:6px">
       <button class="btn primary" id="addSearch">Buscar</button>
-      <div class="seg" id="addStatus"><button data-s="own">📦 La tengo</button><button data-s="wishlist" class="on">⭐ La quiero</button></div>
+      <div class="seg" id="addStatus"><button data-s="own">📦 Lo tengo</button><button data-s="wishlist" class="on">⭐ Lo quiero</button></div>
     </div>
     <div class="search-results" id="addResults"></div>
   </div>`);
