@@ -11,6 +11,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 
 import db
 
@@ -335,7 +336,15 @@ def recommend(mode, answers, engine="rules", limit=4, owner_id=None):
 
     if engine == "agent":
         k = shortlist_size(len(pool))     # cuántos candidatos ve el agente (según el tamaño del pool)
-        return agent_pick(mode, answers, scored[:k], limit)
+        # juegos que el usuario nombró en el texto libre (contexto real para el modelo): busca en
+        # tu colección Y en el catálogo (por si nombra uno que no tenés). Solo si hay texto libre.
+        mentioned = []
+        text = answers.get("texto_libre", "")
+        if text.strip():
+            c2 = db.connect()
+            mentioned = resolve_mentions(c2, text, games)
+            c2.close()
+        return agent_pick(mode, answers, scored[:k], limit, mentioned=mentioned)
 
     return {"engine": "rules", "mode": mode,
             "picks": _picks_from_scored(scored[:limit]), "considered": len(scored)}
@@ -371,7 +380,108 @@ def _extract_json(text):
         return None
 
 
-def _build_prompt(mode, answers, shortlist):
+def _norm(s):
+    """Normaliza para matchear nombres: sin acentos, minúsculas, alfanum, espacios colapsados
+    (así 'Pandemic Legacy: Season 1' matchea se escriba con o sin los dos puntos)."""
+    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
+    s = re.sub(r"[^a-z0-9 ]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+# Nombres del catálogo que también son palabra común (ES/EN): p.ej. "azul" el color vs. el juego
+# Azul. Para ESTOS (y solo si son de una sola palabra) exigimos una señal de intención antes de
+# tratarlos como mención. Es una lista de palabras frecuentes del idioma, no de juegos.
+_COMMON_WORDS = frozenset("""
+azul rojo verde negro blanco gris marron naranja violeta rosa dorado plateado color colores
+luna sol estrella estrellas cielo mar oceano rio bosque montana fuego agua tierra aire viento
+oro plata bronce guerra paz vida muerte amor odio tiempo dia noche tarde manana ano mundo
+casa mesa carta cartas dado dados ficha fichas tablero rey reina principe rico pobre grande
+chico corto largo rapido lento facil dificil nuevo viejo bueno malo fiesta familia amigos
+grupo gente dos tres cuatro cinco seis siete ocho nueve diez cien mil
+the and for with about year game games moon gold silver root coup pandemic wizard spirit
+war life love time night day sun star sky sea river forest fire water earth king queen
+castle dragon knight party fun family quick short long solo group blue red green black white
+""".split())
+
+# palabras gatillo: si aparecen justo antes de un nombre ambiguo, es señal de que sí lo nombra
+_CUES = frozenset("""
+como parecido parecida similar iguales igual tipo estilo jugar jugamos jugando jugue jugado
+juego juegos sacar saco saque sacamos probar probamos pruebo tengo tenemos tenes comprar
+compro compre quiero probando
+""".split())
+
+
+def _cap_norm_tokens(text):
+    """Tokens (normalizados) que en el texto ORIGINAL venían con mayúscula inicial — señal de
+    nombre propio (título) y no palabra común. 'AZUL' y 'Azul' cuentan; 'azul' no."""
+    caps = set()
+    for tok in re.findall(r"\S+", text or ""):
+        first = next((c for c in tok if c.isalpha()), "")
+        if first and first == first.upper() and first != first.lower():
+            caps.add(_norm(tok))
+    return caps
+
+
+def _match_names(text, name_rows, got_ids, limit):
+    """Matchea nombres de juego en `text`. Nombres largos primero ('Ark Nova' gana a 'Ark'), y va
+    consumiendo lo matcheado. Para nombres de UNA sola palabra que son palabra común (azul, luna,
+    root...) exige señal de intención —mayúscula en el original o palabra gatillo antes— para no
+    confundir 'color azul' con el juego Azul. Devuelve los objectids encontrados."""
+    padded = f" {_norm(text)} "
+    toks = padded.split()
+    caps = _cap_norm_tokens(text)
+    found = []
+    for oid, name in sorted(name_rows, key=lambda x: -len(x[1] or "")):
+        if oid in got_ids:
+            continue
+        nn = _norm(name)
+        if len(nn) < 4:            # evita falsos positivos de nombres muy cortos (Go, Uno, Set)
+            continue
+        token = f" {nn} "
+        if token not in padded:
+            continue
+        if " " not in nn and nn in _COMMON_WORDS and nn not in caps:
+            cued = False
+            for i, t in enumerate(toks):
+                prev1 = toks[i - 1] if i >= 1 else ""
+                prev2 = toks[i - 2] if i >= 2 else ""
+                if t == nn and (prev1 in _CUES or prev2 in _CUES):
+                    cued = True
+                    break
+            if not cued:
+                continue           # palabra común sin señal de intención → no es una mención
+        found.append(oid)
+        got_ids.add(oid)
+        padded = padded.replace(token, "  ")   # consumido: no rematchear subcadenas
+        if len(found) >= limit:
+            break
+    return found
+
+
+def resolve_mentions(conn, text, collection, limit=4):
+    """Juegos nombrados en el texto libre, con sus datos reales. Matchea contra TODO el catálogo
+    (que ya incluye los tuyos) por nombre más largo primero, así 'Pandemic Legacy: Season 1' gana
+    a 'Pandemic'. Luego clasifica: si es tuyo usa los datos en memoria; si no, los trae de la base
+    y lo marca `_not_owned` (lo jugaste afuera → solo referencia)."""
+    if not _norm(text):
+        return []
+    by_id = {g["objectid"]: g for g in collection}
+    names = [(r["objectid"], r["name"]) for r in
+             conn.execute("SELECT objectid, name FROM games").fetchall()]
+    ids = _match_names(text, names, set(), limit)   # orden: nombre más largo primero
+    # los que no son de tu colección: traer datos reales de la base en un solo query
+    fetch_ids = [oid for oid in ids if oid not in by_id]
+    fetched = {}
+    if fetch_ids:
+        ph = ",".join("?" for _ in fetch_ids)
+        for r in conn.execute(f"SELECT * FROM games WHERE objectid IN ({ph})", fetch_ids).fetchall():
+            g = db.row_to_game(dict(r))
+            g["_not_owned"] = True
+            fetched[r["objectid"]] = g
+    return [by_id.get(oid) or fetched.get(oid) for oid in ids if oid in by_id or oid in fetched]
+
+
+def _build_prompt(mode, answers, shortlist, mentioned=None):
     games_txt = []
     for s, why, g in shortlist:
         # preferimos la descripción larga: el LLM aprovecha el contexto temático
@@ -387,6 +497,31 @@ def _build_prompt(mode, answers, shortlist):
             f"mecánicas={','.join((g.get('mechanics') or [])[:4])}"
             + (f" | de qué va: {desc}" if desc else "")
         )
+    # juegos que el usuario nombró en su texto libre: le damos los datos reales para que no invente
+    mentioned_txt = ""
+    if mentioned:
+        short_ids = {g["objectid"] for _s, _why, g in shortlist}
+        lines = []
+        for g in mentioned:
+            if g.get("_not_owned"):
+                flag = " | no está en su colección (quizá lo jugó afuera): úsalo solo de referencia, no lo recomiendes"
+            elif g["objectid"] in short_ids:
+                flag = " | ya está entre los candidatos de abajo"
+            else:
+                flag = " | no está entre los candidatos"
+            lines.append(
+                f"- {g['name']}: tipo={','.join(g.get('subdomains') or [])} | "
+                f"complejidad={round(g.get('weight') or 0,1)}/5 | "
+                f"mecánicas={','.join((g.get('mechanics') or [])[:4])}" + flag)
+        mentioned_txt = (
+            "\n\nDetección heurística (puede equivocarse): por el texto del usuario, estos juegos "
+            "PODRÍAN ser referencias que hizo. Te adjunto sus datos reales solo como contexto, por "
+            "si al leer el pedido interpretás que efectivamente los estaba nombrando. Si alguno no "
+            "encaja (p. ej. usó la palabra en otro sentido), ignoralo. Si sí los nombró: cuando "
+            "pide descartar uno o dice que ya lo juega mucho, no lo recomiendes; cuando pide 'algo "
+            "parecido', usá su tipo/mecánicas como referencia para elegir entre los candidatos:\n"
+            + "\n".join(lines))
+
     intent = ("Recomendá qué juego sacar HOY a la mesa entre los que YA TIENE"
               if mode == "play" else
               "Recomendá qué juego le CONVIENE COMPRAR de su wishlist, mirando el balance de su colección")
@@ -404,7 +539,7 @@ def _build_prompt(mode, answers, shortlist):
 {metodo}
 
 Respuestas del usuario (traducidas de preguntas de la vida real):
-{json.dumps(answers, ensure_ascii=False, indent=2)}
+{json.dumps(answers, ensure_ascii=False, indent=2)}{mentioned_txt}
 
 Candidatos (prefiltrados por relevancia; evaluá TODOS y elegí los mejores):
 {chr(10).join(games_txt)}
@@ -431,7 +566,7 @@ Respondé SOLO JSON válido con esta forma exacta:
 {{"picks":[{{"objectid":"<id>","pitch":"<3-4 frases>"}}]}}"""
 
 
-def agent_pick(mode, answers, shortlist, limit):
+def agent_pick(mode, answers, shortlist, limit, mentioned=None):
     if not shortlist:
         return {"engine": "agent", "mode": mode, "picks": [], "considered": 0,
                 "note": "No hay candidatos que cumplan los filtros."}
@@ -448,7 +583,9 @@ def agent_pick(mode, answers, shortlist, limit):
     if not gem_key:
         return deterministico("Configurá tu API key de Gemini (⚙) para usar el modo agente.")
 
-    prompt = _build_prompt(mode, answers, shortlist)
+    if mentioned:
+        print(f"[advisor] menciones detectadas: {[g['name'] for g in mentioned]}", flush=True)
+    prompt = _build_prompt(mode, answers, shortlist, mentioned=mentioned)
     by_id = {g["objectid"]: (s, why, g) for s, why, g in shortlist}
     t0 = time.time()
     try:
@@ -492,8 +629,11 @@ def _call_gemini(prompt, key, model="gemini-3.6-flash"):
     url = ("https://generativelanguage.googleapis.com/v1beta/models/"
            + model + ":generateContent?key=" + key)
 
-    def post(payload, tries=3):
-        # timeout 60s (doble del mínimo de animación). Reintenta ante errores transitorios de Google.
+    def post(payload, tries=4):
+        # timeout 60s por intento. Reintenta ante transitorios: HTTP 429/500/503 de Google, y
+        # errores de red/SSL (típicos del proxy corporativo, que falla de forma intermitente).
+        # Backoff creciente: 1.5s, 3s, 4.5s. Como el loader tiene piso de ~25s, los reintentos
+        # que resuelven dentro de esa ventana son invisibles para el usuario.
         last = None
         for i in range(tries):
             req = urllib.request.Request(url, data=json.dumps(payload).encode(),
@@ -502,7 +642,15 @@ def _call_gemini(prompt, key, model="gemini-3.6-flash"):
                 with urllib.request.urlopen(req, timeout=60) as r:
                     return json.loads(r.read().decode())
             except urllib.error.HTTPError as e:
+                # HTTPError es subclase de URLError: lo atajamos primero para tratar el 400 aparte
                 if e.code in (429, 500, 503) and i < tries - 1:
+                    last = e
+                    time.sleep(1.5 * (i + 1))
+                    continue
+                raise
+            except urllib.error.URLError as e:
+                # red caída o SSL del proxy corporativo (intermitente) -> reintento
+                if i < tries - 1:
                     last = e
                     time.sleep(1.5 * (i + 1))
                     continue

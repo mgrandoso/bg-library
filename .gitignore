@@ -11,6 +11,10 @@ __pycache__/
 *.pyc
 .venv/
 
-# datos enriquecidos son grandes pero regenerables; se dejan versionados por comodidad
-# (comentar la línea de abajo si preferís no versionar el cache)
-# data/bgg_data.json
+# DATOS PERSONALES — nunca al repo. Cada quien tiene su colección local; el repo solo trae
+# el preseed genérico del top-5000 (data/bgg_top.json).
+# (los comentarios van en su propia línea: git NO soporta comentarios al final de un patrón)
+# tu export de BGG (ownership, ratings, wishlist, comentarios):
+collection.csv
+# cache enriquecido de TU colección (revela tu set de juegos):
+data/bgg_data.json

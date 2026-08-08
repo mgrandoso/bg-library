@@ -52,7 +52,8 @@ const S = {
   stats: null, geminiReady: false, panelSource: 'own',
 };
 /* estado del browse de BGG (paginado, persiste al navegar) */
-const BGGV = { games: [], page: 0, q: '', total: 0, hasMore: false, loading: false, owner: 0 };
+const BGGV = { games: [], page: 0, q: '', total: 0, hasMore: false, loading: false, owner: 0,
+  types: new Set(), players: 0, time: '', weight: '', sort: 'rank', sortDir: 1 };
 
 /* ================= arranque ================= */
 init();
@@ -85,8 +86,7 @@ function bindTop() {
   });
   if (localStorage.getItem('theme')) document.documentElement.dataset.theme = localStorage.getItem('theme');
   $('#btnAdd').addEventListener('click', openAdd);
-  $('#btnData').addEventListener('click', openData);
-  $('#btnCfg').addEventListener('click', openConfig);
+  $('#btnCfg').addEventListener('click', () => openData());   // hub único: perfiles + datos + config
   $('#ownerSel').addEventListener('change', async e => {
     S.owner = +e.target.value; await loadGames(); render();
   });
@@ -245,40 +245,108 @@ function refreshGrid(kind) {
   wrap.append(grid);
 }
 
-/* ================= BGG (browse del top, paginado) ================= */
+/* ================= BGG (browse del top, paginado + filtros server-side) ================= */
+function bggParams() {
+  const p = new URLSearchParams({
+    owner: S.owner, page: BGGV.page, per: 100, q: BGGV.q, sort: BGGV.sort, dir: BGGV.sortDir,
+  });
+  if (BGGV.types.size) p.set('types', [...BGGV.types].join(','));
+  if (BGGV.players) p.set('players', BGGV.players);
+  if (BGGV.time) p.set('time', BGGV.time);
+  if (BGGV.weight) p.set('weight', BGGV.weight);
+  return p.toString();
+}
+function bggHasActiveFilters() {
+  return !!(BGGV.q || BGGV.types.size || BGGV.players || BGGV.time || BGGV.weight);
+}
+
 async function bggFetch(reset) {
-  if (BGGV.loading) return;
+  if (BGGV.loading) return [];
   BGGV.loading = true;
   if (reset) { BGGV.page = 0; BGGV.games = []; }
+  let added = [];
   try {
-    const d = await api(`/bgg?owner=${S.owner}&page=${BGGV.page}&per=48&q=${encodeURIComponent(BGGV.q)}`);
+    const d = await api('/bgg?' + bggParams());
+    added = d.games;
     BGGV.games = BGGV.games.concat(d.games);
     BGGV.total = d.total; BGGV.hasMore = d.has_more; BGGV.owner = S.owner;
   } catch (e) { toast('Error: ' + e.message); }
   BGGV.loading = false;
+  return added;
+}
+
+// recarga desde cero (cambió un filtro/orden/búsqueda): spinner → fetch(reset) → repaint
+async function bggReload() {
+  const grid = $('#bggGrid'); if (grid) grid.innerHTML = '<div class="spinner"></div>';
+  await bggFetch(true);
+  paintBGG();
 }
 
 let bggSearchT;
+function renderBGGFilters() {
+  const bar = node('<div class="filters"></div>');
+
+  const search = node(`<div class="search">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+    <input id="bggSearch" placeholder="Buscar en el top de BGG…" value="${esc(BGGV.q)}">
+  </div>`);
+  search.querySelector('input').addEventListener('input', e => {
+    BGGV.q = e.target.value; clearTimeout(bggSearchT); bggSearchT = setTimeout(bggReload, 350);
+  });
+  bar.append(search);
+
+  const players = node(`<select title="Jugadores"><option value="0">Jugadores</option>${[1, 2, 3, 4, 5, 6, 7, 8].map(n => `<option value="${n}" ${BGGV.players === n ? 'selected' : ''}>${n} jugador${n > 1 ? 'es' : ''}</option>`).join('')}</select>`);
+  players.addEventListener('change', e => { BGGV.players = +e.target.value; bggReload(); });
+  bar.append(players);
+
+  const time = node(`<select title="Duración"><option value="">Duración</option><option value="short" ${BGGV.time === 'short' ? 'selected' : ''}>Corto (&lt;30m)</option><option value="mid" ${BGGV.time === 'mid' ? 'selected' : ''}>Medio (30–89m)</option><option value="long" ${BGGV.time === 'long' ? 'selected' : ''}>Largo (90m+)</option></select>`);
+  time.addEventListener('change', e => { BGGV.time = e.target.value; bggReload(); });
+  bar.append(time);
+
+  const weight = node(`<select title="Complejidad"><option value="">Complejidad</option><option value="light" ${BGGV.weight === 'light' ? 'selected' : ''}>Liviana</option><option value="mid" ${BGGV.weight === 'mid' ? 'selected' : ''}>Media</option><option value="heavy" ${BGGV.weight === 'heavy' ? 'selected' : ''}>Pesada</option></select>`);
+  weight.addEventListener('change', e => { BGGV.weight = e.target.value; bggReload(); });
+  bar.append(weight);
+
+  const sortOpts = [['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['time', 'Duración'], ['year', 'Año'], ['name', 'Nombre']];
+  const sort = node(`<select title="Ordenar por">${sortOpts.map(([v, l]) => `<option value="${v}" ${BGGV.sort === v ? 'selected' : ''}>Orden: ${l}</option>`).join('')}</select>`);
+  sort.addEventListener('change', e => { BGGV.sort = e.target.value; bggReload(); });
+  bar.append(sort);
+
+  const dirBtn = node(`<button class="mini-select sortdir ${BGGV.sortDir === -1 ? 'flipped' : ''}" title="Invertir orden">${BGGV.sortDir === 1 ? '↓' : '↑'}</button>`);
+  dirBtn.addEventListener('click', () => {
+    BGGV.sortDir = BGGV.sortDir === 1 ? -1 : 1;
+    dirBtn.textContent = BGGV.sortDir === 1 ? '↓' : '↑';
+    dirBtn.classList.toggle('flipped', BGGV.sortDir === -1);
+    bggReload();
+  });
+  bar.append(dirBtn);
+
+  const chips = node('<div class="type-chips"></div>');
+  Object.keys(SUBDOMAIN).forEach(s => {
+    const c = node(`<button class="chip ${BGGV.types.has(s) ? 'active' : ''}" style="--c:${typeColor(s)}"><span class="dot"></span>${typeEs(s)}</button>`);
+    c.addEventListener('click', () => { BGGV.types.has(s) ? BGGV.types.delete(s) : BGGV.types.add(s); c.classList.toggle('active'); bggReload(); });
+    chips.append(c);
+  });
+  const clearBtn = node('<button class="chip clear-filters" id="bggClear">✕ Limpiar filtros</button>');
+  clearBtn.addEventListener('click', () => {
+    Object.assign(BGGV, { q: '', types: new Set(), players: 0, time: '', weight: '', games: [], page: 0 });
+    renderBGG($('#main'));   // reconstruye la barra con los controles reseteados y recarga
+  });
+  clearBtn.style.display = bggHasActiveFilters() ? 'inline-flex' : 'none';
+  chips.append(clearBtn);
+  chips.append(node('<span class="count-tag" id="bggCount"></span>'));
+  bar.append(chips);
+  return bar;
+}
+
 async function renderBGG(m) {
   const v = node('<div class="view"></div>');
-  const bar = node(`<div class="filters">
-    <div class="search">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
-      <input id="bggSearch" placeholder="Buscar en el top de BGG…" value="${esc(BGGV.q)}">
-    </div>
-    <span class="count-tag" id="bggCount"></span>
-  </div>`);
-  bar.querySelector('#bggSearch').addEventListener('input', e => {
-    BGGV.q = e.target.value;
-    clearTimeout(bggSearchT);
-    bggSearchT = setTimeout(async () => { $('#bggGrid').innerHTML = '<div class="spinner"></div>'; await bggFetch(true); paintBGG(); }, 350);
-  });
-  v.append(bar);
+  v.append(renderBGGFilters());
   v.append(node('<div class="grid" id="bggGrid"></div>'));
-  v.append(node('<div id="bggMore" style="text-align:center;margin:24px 0"></div>'));
+  v.append(node('<div id="bggMore" style="text-align:center;margin:20px 0"></div>'));
   m.innerHTML = ''; m.append(v);
 
-  // primera carga (o si cambió de perfil); si ya hay datos, se mantienen (posición/páginas)
+  // primera carga (o si cambió de perfil / se limpiaron filtros); si ya hay datos, se mantienen
   if (BGGV.owner !== S.owner || (!BGGV.games.length && !BGGV.loading)) {
     $('#bggGrid').innerHTML = '<div class="spinner"></div>';
     await bggFetch(true);
@@ -289,13 +357,41 @@ async function renderBGG(m) {
 function paintBGG() {
   const grid = $('#bggGrid'); if (!grid) return;
   grid.innerHTML = '';
-  if (!BGGV.games.length) { grid.append(node('<div class="empty"><div class="ic">🎲</div><p>Sin resultados.</p></div>')); }
+  if (!BGGV.games.length) grid.append(node('<div class="empty"><div class="ic">🎲</div><p>Sin resultados.</p></div>'));
   else BGGV.games.forEach(g => grid.append(card(g)));
-  const cnt = $('#bggCount'); if (cnt) cnt.textContent = `${BGGV.total.toLocaleString('es-AR')} juegos`;
-  const more = $('#bggMore'); if (!more) return; more.innerHTML = '';
-  if (BGGV.hasMore) {
+  const cnt = $('#bggCount'); if (cnt) cnt.textContent = `${BGGV.total.toLocaleString('es-AR')} juego${BGGV.total === 1 ? '' : 's'}`;
+  const clr = $('#bggClear'); if (clr) clr.style.display = bggHasActiveFilters() ? 'inline-flex' : 'none';
+  setupBGGInfinite();
+}
+
+// scroll infinito: un centinela al final dispara la carga de la próxima página.
+// Fallback a botón manual si el navegador no soporta IntersectionObserver.
+let bggObserver = null;
+function setupBGGInfinite() {
+  const more = $('#bggMore'); if (!more) return;
+  if (bggObserver) { bggObserver.disconnect(); bggObserver = null; }
+  more.innerHTML = '';
+  if (!BGGV.hasMore) return;
+
+  const loadNext = async () => {
+    if (BGGV.loading || !BGGV.hasMore) return;
+    BGGV.page++;
+    const added = await bggFetch(false);
+    const grid = $('#bggGrid');
+    if (grid) added.forEach(g => grid.append(card(g)));   // append incremental (no repinta todo)
+    setupBGGInfinite();                                    // reubica el centinela al nuevo final
+  };
+
+  if ('IntersectionObserver' in window) {
+    more.innerHTML = `<div class="bgg-sentinel" id="bggSentinel"><div class="spinner" style="margin:0 auto"></div>
+      <span class="count-tag" style="margin:0">${BGGV.games.length} de ${BGGV.total.toLocaleString('es-AR')}</span></div>`;
+    bggObserver = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) loadNext();
+    }, { rootMargin: '600px 0px' });                       // precarga antes de tocar fondo
+    bggObserver.observe($('#bggSentinel'));
+  } else {
     const btn = node(`<button class="btn">Cargar más · ${BGGV.games.length} de ${BGGV.total.toLocaleString('es-AR')}</button>`);
-    btn.addEventListener('click', async () => { btn.textContent = 'Cargando…'; btn.disabled = true; BGGV.page++; await bggFetch(false); paintBGG(); });
+    btn.addEventListener('click', () => { btn.textContent = 'Cargando…'; btn.disabled = true; loadNext(); });
     more.append(btn);
   }
 }
@@ -312,13 +408,22 @@ function weightbar(w, big) {
   const b = weightBucket(w); const on = b == null ? 0 : b + 1;
   return `<span class="weightbar ${big ? 'big' : ''}" title="Complejidad: ${b == null ? 's/d' : WEIGHT_LABELS[b]}">${[0, 1, 2, 3, 4].map(i => `<span class="seg ${i < on ? 'on' : ''}"></span>`).join('')}</span>`;
 }
+// Etiqueta de estado sobre la portada. Solo en BGG (en Biblioteca/Wishlist es redundante:
+// ahí todo es "tengo" o "quiero"). Chip con fondo sólido para que se lea como algo sobrepuesto.
+function stateBadge(g) {
+  if (S.view !== 'bgg') return '';
+  if (g.own) return '<span class="statebadge own" title="En mi colección">📦</span>';
+  if (g.wishlist) return '<span class="statebadge wish" title="En mi wishlist">⭐</span>';
+  return '';
+}
 function card(g) {
   const t = (g.subdomains || [])[0];
+  const players = S.view === 'bgg' ? BGGV.players : S.filters.players;
   const c = node(`
     <div class="card" data-oid="${esc(g.objectid)}">
       <div class="cover" style="background-image:url('${esc(safeImg(g.image || g.thumb))}')">
         ${g.rank_overall ? `<span class="rankbadge">#${g.rank_overall}</span>` : ''}
-        <span class="statebadge">${g.own ? '📦' : (g.wishlist ? '⭐' : '')}</span>
+        ${stateBadge(g)}
       </div>
       <div class="body">
         <div>
@@ -330,7 +435,7 @@ function card(g) {
           <span class="m">👥 ${g.minplayers || '?'}–${g.maxplayers || '?'}</span>
           <span class="m">⏱ ${g.maxplaytime || '?'}′</span>
         </div>
-        ${S.filters.players ? `<div>${playerFit(g, S.filters.players)}</div>` : ''}
+        ${players ? `<div>${playerFit(g, players)}</div>` : ''}
       </div>
     </div>`);
   c.addEventListener('click', () => openDetail(g));
@@ -470,9 +575,14 @@ function stateControls(g) {
       else if (upd.own || upd.wishlist) S.games.push(upd);   // agregado desde BGG -> entra a la colección
       const j = BGGV.games.findIndex(x => x.objectid === g.objectid);
       if (j >= 0) Object.assign(BGGV.games[j], { own: upd.own, wishlist: upd.wishlist });
-      // actualizar el badge de la card sin re-render (para BGG)
-      const card = document.querySelector(`.card[data-oid="${g.objectid}"]`);
-      if (card) card.querySelector('.statebadge').textContent = upd.own ? '📦' : (upd.wishlist ? '⭐' : '');
+      // actualizar el badge de la card sin re-render (para BGG): recrea el chip de estado
+      const cardEl = document.querySelector(`.card[data-oid="${g.objectid}"]`);
+      if (cardEl && S.view === 'bgg') {
+        const cover = cardEl.querySelector('.cover');
+        const old = cover.querySelector('.statebadge'); if (old) old.remove();
+        const html = stateBadge({ own: upd.own, wishlist: upd.wishlist });
+        if (html) cover.append(node(html));
+      }
       toast('Guardado');
       await loadOwners();
     } catch (e) { toast('Error: ' + e.message); }
@@ -850,7 +960,7 @@ function backButton() {
 function renderResults(out) {
   const res = $('#advResults'); if (!res) return; res.innerHTML = '';
   const form = $('#advForm'); if (form) form.style.display = 'none';   // los resultados pisan el form
-  const engLabel = out.engine === 'rules' ? '⚙ determinístico' : (out.engine.startsWith('gemini') ? '🤖 Gemini' : '🤖 Claude');
+  const engLabel = out.engine.startsWith('gemini') ? '🤖 Gemini' : '⚙ determinístico';
   res.append(node(`<div class="rec-head">Seleccioné los mejores <b>${out.picks.length}</b> de <b>${out.considered}</b> que se adaptaban a lo que pediste <span class="rec-eng">${engLabel}</span></div>`));
   if (out.note) res.append(node(`<div class="gap-note" style="background:color-mix(in srgb,var(--brass) 12%,transparent);border-color:color-mix(in srgb,var(--brass) 30%,transparent)">${esc(out.note)}</div>`));
   if (!out.picks.length) { res.append(node('<div class="empty"><div class="ic">🤔</div><p>No encontré nada que encaje. Aflojá algún filtro.</p></div>')); res.append(backButton()); return; }
@@ -960,12 +1070,13 @@ function openAdd() {
 /* ================= DATOS: perfiles + import/export ================= */
 function openData(tab = 'perfiles') {
   const inner = node(`<div class="sheet-body">
-    <h2 style="margin-bottom:14px">Perfiles y datos</h2>
+    <h2 style="margin-bottom:14px">Perfiles y configuración</h2>
     <div class="tabs" id="dataTabs">
       <button data-t="perfiles">👥 Perfiles</button>
       <button data-t="importar">📥 Importar</button>
       <button data-t="backup">💾 Backup</button>
       <button data-t="actualizar">🔄 Actualizar</button>
+      <button data-t="config">⚙ Advisor</button>
     </div>
 
     <section data-p="perfiles" class="tab-pane">
@@ -979,6 +1090,18 @@ function openData(tab = 'perfiles') {
 
     <section data-p="importar" class="tab-pane" hidden>
       <p class="tab-hint">Cargá un CSV de <b>BoardGameGeek</b> o un <b>backup de esta app</b> (los dos formatos funcionan). Se completa con imágenes y datos automáticamente. Si el perfil ya existe, <b>actualiza</b> su estado.</p>
+      <details class="imp-help">
+        <summary>¿No tenés el CSV? Te ayudo a generarlo en BGG ▾</summary>
+        <div class="imp-help-body">
+          <p>BoardGameGeek exporta tu colección con un link directo. Escribí tu usuario y descargalo (tenés que estar logueado en BGG en este navegador):</p>
+          <div class="imp-user-row">
+            <input id="bggUser" placeholder="tu usuario de BGG">
+            <a class="btn disabled" id="bggDl" href="#" target="_blank" rel="noopener">⬇ Descargar CSV</a>
+          </div>
+          <p class="imp-help-note">Se baja un archivo <code>collection.csv</code>; después subilo acá abajo. El link es:<br>
+            <code id="bggUrl">…&amp;username=<b>TU_USUARIO</b>&amp;all=1</code></p>
+        </div>
+      </details>
       <div class="field">
         <label>¿A qué perfil va?</label>
         <select id="impProfile"></select>
@@ -1005,9 +1128,32 @@ function openData(tab = 'perfiles') {
     </section>
 
     <section data-p="actualizar" class="tab-pane" hidden>
-      <p class="tab-hint">Los rankings y datos de BGG cambian de a poco (salen juegos nuevos). Refrescalos cuando quieras.</p>
+      <p class="tab-hint"><b>Actualizar todo</b> hace el mantenimiento completo <b>por diff</b> (rápido): recarga el catálogo top-5000 desde el preseed (local, instantáneo), re-baja de BGG <b>solo tus juegos que quedaron fuera del top</b>, y quita del catálogo los que ya no tiene nadie. Es lo recomendado.</p>
+      <button class="btn primary block" id="updateAllBtn">🔄 Actualizar todo</button>
+      <div id="updateAllMsg" style="margin-top:10px;font-size:13px;color:var(--ink-dim)"></div>
+
+      <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
+      <p class="tab-hint">O por separado:</p>
       <div id="freshBox" style="font-size:13.5px;color:var(--ink-soft)">Comprobando…</div>
-      <button class="btn primary block" id="refreshBtn" style="margin-top:12px;display:none">🔄 Actualizar rankings y datos</button>
+      <button class="btn block" id="refreshBtn" style="margin-top:10px;display:none">🔄 Solo rankings de mis juegos</button>
+      <p class="tab-hint" style="margin-top:14px">¿Hiciste <code>git pull</code> y el repo trae un catálogo nuevo? Recargá <b>solo el top-5000</b> desde el preseed (no toca tu colección).</p>
+      <button class="btn block" id="reseedBtn">📚 Solo recargar catálogo top-5000</button>
+      <div id="reseedMsg" style="margin-top:10px;font-size:13px;color:var(--ink-dim)"></div>
+    </section>
+
+    <section data-p="config" class="tab-pane" hidden>
+      <p class="tab-hint">El <b>Advisor con agente</b> usa <b>Google Gemini</b> (tiene <b>tier gratis</b>). Conseguí una API key gratis en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> y pegala acá. Sin key, el Advisor funciona igual en modo determinístico.</p>
+      <div class="field">
+        <label>API key de Google AI Studio <span id="cfgKeyState"></span></label>
+        <input id="cfgKey" type="password" placeholder="Pegá acá tu API key">
+      </div>
+      <div class="field">
+        <label>Modelo Gemini</label>
+        <input id="cfgModel" value="gemini-3.6-flash">
+        <p class="tab-hint" style="margin-top:6px">Viene con el último Flash gratis. Cambialo si Google saca uno nuevo, o por un modelo superior (Pro) si tenés suscripción paga.</p>
+      </div>
+      <button class="btn primary block" id="cfgSave">Guardar</button>
+      <div id="cfgMsg" style="margin-top:10px;font-size:12px;color:var(--ink-dim)">La key se guarda en el <b>llavero de credenciales</b> de tu sistema, no en texto plano (si no está disponible, cae a <code>config.json</code> local).</div>
     </section>
   </div>`);
 
@@ -1031,19 +1177,42 @@ function openData(tab = 'perfiles') {
     inner.querySelector('#impNameWrap').style.display = impProfile.value === '__new__' ? 'block' : 'none';
   });
 
+  // ayuda: armar el link de export de BGG desde el usuario
+  const bggUser = inner.querySelector('#bggUser'), bggDl = inner.querySelector('#bggDl'), bggUrl = inner.querySelector('#bggUrl');
+  const bggExportUrl = (u) => `https://boardgamegeek.com/geekcollection.php?action=exportcsv&subtype=boardgame&username=${encodeURIComponent(u)}&all=1`;
+  const updateBgg = () => {
+    const u = bggUser.value.trim();
+    bggDl.classList.toggle('disabled', !u);
+    bggDl.href = u ? bggExportUrl(u) : '#';
+    bggUrl.innerHTML = u ? `…&username=<b>${esc(u)}</b>&all=1` : '…&username=<b>TU_USUARIO</b>&all=1';
+  };
+  bggUser.addEventListener('input', updateBgg);
+  bggDl.addEventListener('click', e => { if (!bggUser.value.trim()) e.preventDefault(); });
+  updateBgg();
+
   function paintOwners() {
     const list = inner.querySelector('#ownerList'); list.innerHTML = '';
     S.owners.forEach(o => {
       const row = node(`<div class="sr" style="cursor:default">
         <div style="width:14px;height:14px;border-radius:50%;background:${o.color};flex:none"></div>
         <div style="flex:1"><div class="n">${o.is_me ? '👤 ' : '👥 '}${esc(o.name)}</div><div class="y">${o.own_count} juegos · ${o.wish_count} wishlist</div></div>
-        <button class="btn ghost ren" style="padding:6px 10px">✎</button>
-        ${o.is_me ? '' : '<button class="btn ghost del" style="padding:6px 10px;color:var(--danger)">🗑</button>'}
+        <button class="btn ghost ren" style="padding:6px 10px" title="Renombrar">✎</button>
+        <button class="btn ghost rst" style="padding:6px 10px" title="Vaciar la colección (empezar de cero)">♻</button>
+        ${o.is_me ? '' : '<button class="btn ghost del" style="padding:6px 10px;color:var(--danger)" title="Borrar perfil">🗑</button>'}
       </div>`);
       row.querySelector('.ren').addEventListener('click', async () => {
         const name = prompt('Nuevo nombre:', o.name); if (!name) return;
         await api('/owners/' + o.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
         await loadOwners(); paintOwners(); toast('Renombrado');
+      });
+      row.querySelector('.rst').addEventListener('click', async () => {
+        if ((o.own_count + o.wish_count) === 0) { toast('Ese perfil ya está vacío'); return; }
+        if (!confirm(`¿Vaciar la colección de ${o.name}? Se borran sus ${o.own_count} juegos y ${o.wish_count} de wishlist. El perfil queda, pero vacío. No se puede deshacer.`)) return;
+        const r = await api('/owners/' + o.id + '/reset', { method: 'POST' });
+        await loadOwners(); paintOwners();
+        if (S.owner === o.id) { await loadGames(); render(); }
+        toast(`Colección vaciada (${r.cleared} juegos)`);
+        if (o.is_me && S.owner === o.id) { ov.remove(); maybeOnboard(); }  // ofrecé recargar de cero
       });
       const del = row.querySelector('.del');
       if (del) del.addEventListener('click', async () => {
@@ -1076,10 +1245,26 @@ function openData(tab = 'perfiles') {
     const isNew = impProfile.value === '__new__';
     const name = isNew ? inner.querySelector('#impName').value.trim() : '';
     if (isNew && !name) { toast('Poné el nombre del perfil nuevo'); return; }
+    const goBtn = inner.querySelector('#impGo'); const prog = inner.querySelector('#impProg');
+
+    // Re-import a un perfil que YA tiene juegos → reconciliación con confirmación (flujo 9).
+    // Perfil nuevo o vacío → import directo (todo son altas).
+    const targetId = isNew ? null : Number(impProfile.value);
+    const target = isNew ? null : S.owners.find(o => o.id === targetId);
+    if (target && (target.own_count || 0) + (target.wish_count || 0) > 0) {
+      goBtn.textContent = 'Analizando diferencias…'; goBtn.disabled = true;
+      try {
+        const fd = new FormData(); fd.append('file', file); fd.append('owner_id', targetId);
+        const pv = await api('/reconcile/preview', { method: 'POST', body: fd });
+        openReconcile(file, targetId, pv, ov);
+      } catch (e) { toast('Error: ' + e.message); }
+      goBtn.textContent = 'Importar'; goBtn.disabled = false;
+      return;
+    }
+
     const fd = new FormData(); fd.append('file', file); fd.append('mode', mode);
     if (isNew) { fd.append('owner_name', name); fd.append('new_profile', '1'); }
     else { fd.append('owner_id', impProfile.value); }
-    const goBtn = inner.querySelector('#impGo'); const prog = inner.querySelector('#impProg');
     goBtn.textContent = 'Importando…'; goBtn.disabled = true;
     try {
       const r = await api('/import', { method: 'POST', body: fd });
@@ -1120,7 +1305,141 @@ function openData(tab = 'perfiles') {
     toast(`Actualizados ${done} juegos`); if (S.view === 'panel') render();
   });
 
+  // Actualizar TODO por diff: A) reseed local  B) refresh de red solo lo tenido fuera del top
+  // C) GC de huérfanos. Barato: la red solo toca tus juegos rankeados >5000 / caídos del top.
+  const updateAllBtn = inner.querySelector('#updateAllBtn'), updateAllMsg = inner.querySelector('#updateAllMsg');
+  updateAllBtn.addEventListener('click', async () => {
+    updateAllBtn.disabled = true; updateAllMsg.textContent = '';
+    try {
+      updateAllBtn.textContent = '📚 Recargando catálogo…';
+      const a = await api('/reseed', { method: 'POST' });
+      updateAllBtn.textContent = '🔄 Refrescando tus juegos…';
+      let refreshed = 0, total = null;
+      for (let i = 0; i < 300; i++) {
+        const b = await api('/update/refresh?limit=20', { method: 'POST' });
+        if (total === null) total = b.refreshed + b.remaining;
+        refreshed += b.refreshed;
+        if (total) updateAllBtn.textContent = `🔄 Refrescando… ${refreshed}/${total}`;
+        if (b.remaining === 0 || b.refreshed === 0) break;
+      }
+      updateAllBtn.textContent = '🧹 Limpiando huérfanos…';
+      const c = await api('/update/gc', { method: 'POST' });
+      BGGV.owner = -1; await loadGames(); await loadOwners();
+      updateAllMsg.innerHTML = `✓ Catálogo top-5000: <b>${(a.catalog || 0).toLocaleString('es-AR')}</b> · `
+        + `tus juegos fuera del top refrescados: <b>${refreshed}</b> · huérfanos quitados: <b>${c.removed}</b>.`;
+      if (S.view === 'panel') render();
+      toast('Actualización completa');
+    } catch (e) { updateAllMsg.innerHTML = `<span style="color:var(--danger)">Error: ${esc(e.message)}</span>`; }
+    updateAllBtn.disabled = false; updateAllBtn.textContent = '🔄 Actualizar todo';
+  });
+
+  // recargar el catálogo top-5000 desde el preseed del repo (tras un git pull)
+  const reseedBtn = inner.querySelector('#reseedBtn'), reseedMsg = inner.querySelector('#reseedMsg');
+  reseedBtn.addEventListener('click', async () => {
+    reseedBtn.disabled = true; reseedBtn.textContent = '📚 Recargando catálogo…';
+    try {
+      const r = await api('/reseed', { method: 'POST' });
+      reseedMsg.innerHTML = `✓ Catálogo recargado: <b>${(r.catalog || 0).toLocaleString('es-AR')}</b> juegos del top-5000.`;
+      BGGV.owner = -1;   // fuerza refetch del browse de BGG la próxima vez
+      await loadGames();
+      toast('Catálogo actualizado');
+    } catch (e) { reseedMsg.innerHTML = `<span style="color:var(--danger)">Error: ${esc(e.message)}</span>`; }
+    reseedBtn.disabled = false; reseedBtn.textContent = '📚 Actualizar catálogo top-5000';
+  });
+
+  // config del Advisor (Gemini) — antes era un sheet aparte, ahora es este tab
+  const cfgKey = inner.querySelector('#cfgKey'), cfgModel = inner.querySelector('#cfgModel');
+  const cfgKeyState = inner.querySelector('#cfgKeyState'), cfgMsg = inner.querySelector('#cfgMsg');
+  (async () => {
+    try {
+      const cfg = await api('/config');
+      if (cfg.gemini_model) cfgModel.value = cfg.gemini_model;
+      if (cfg.gemini_key_set) {
+        cfgKeyState.innerHTML = `<span style="color:var(--good)">· configurada (${esc(cfg.gemini_key_hint)})</span>`;
+        cfgKey.placeholder = 'Ya configurada — dejá vacío para no cambiarla';
+      }
+    } catch {}
+  })();
+  inner.querySelector('#cfgSave').addEventListener('click', async () => {
+    const patch = { default_engine: 'gemini', gemini_model: cfgModel.value.trim() };
+    const key = cfgKey.value.trim(); if (key) patch.gemini_api_key = key;
+    try {
+      const pub = await api('/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+      S.geminiReady = !!pub.gemini_key_set;
+      cfgKey.value = '';
+      if (pub.gemini_key_set) { cfgKeyState.innerHTML = `<span style="color:var(--good)">· configurada (${esc(pub.gemini_key_hint)})</span>`; cfgKey.placeholder = 'Ya configurada — dejá vacío para no cambiarla'; }
+      cfgMsg.innerHTML = '✓ Guardado.';
+      toast('Configuración guardada');
+      if (S.view === 'advisor') render();   // habilita/deshabilita el agente al toque
+    } catch (e) { toast('Error: ' + e.message); }
+  });
+
   const ov = overlay(inner, 'sheet');
+}
+
+/* Reconciliación de re-import (flujo 9): muestra el diff agrupado y aplica con confirmación.
+   Altas y cambios se aplican al confirmar; las bajas solo las que el usuario marca. */
+function openReconcile(file, ownerId, pv, dataOv) {
+  const owner = S.owners.find(o => o.id === ownerId) || {};
+  const stTag = s => s === 'own'
+    ? '<span class="st own">📦 tengo</span>' : '<span class="st wish">⭐ wishlist</span>';
+  const grp = (cls, icon, title, n, bodyHtml, open) => n === 0 ? '' : `
+    <details class="recon-grp ${cls}" ${open ? 'open' : ''}>
+      <summary><span class="recon-ic">${icon}</span><b>${title}</b><span class="recon-n">${n}</span></summary>
+      <div class="recon-body">${bodyHtml}</div>
+    </details>`;
+  const addedHtml = pv.added.map(g =>
+    `<div class="recon-row"><span class="rn">${esc(g.name)}</span>${stTag(g.to)}</div>`).join('');
+  const changedHtml = pv.changed.map(g =>
+    `<div class="recon-row"><span class="rn">${esc(g.name)}</span><span class="ch">${stTag(g.from)} <span class="arr">→</span> ${stTag(g.to)}</span></div>`).join('');
+  const removedHtml =
+    `<p class="recon-hint">Marcá las que quieras <b>sacar</b> de la colección. Las que dejes sin marcar se conservan.</p>
+     <button class="btn ghost sm" id="rmAll" type="button">Marcar todas</button>`
+    + pv.removed.map(g =>
+      `<label class="recon-row rm"><input type="checkbox" class="rmchk" data-id="${g.objectid}"><span class="rn">${esc(g.name)}</span>${stTag(g.from)}</label>`).join('');
+
+  const nothing = !pv.added.length && !pv.changed.length && !pv.removed.length;
+  const inner = node(`<div class="sheet-body">
+    <h2 style="margin-bottom:4px">Revisar importación</h2>
+    <p class="tab-hint">Comparé el CSV con la colección de <b>${esc(owner.name || 'este perfil')}</b>. Las <b>altas</b> y los <b>cambios</b> se aplican al confirmar; las <b>bajas</b>, solo las que marques.</p>
+    ${nothing ? '<p style="margin:22px 0;color:var(--ink-dim);text-align:center">No hay diferencias: el CSV coincide con lo que ya tenés. 🎲</p>' : ''}
+    <div class="recon-groups">
+      ${grp('add', '➕', 'Se agregan', pv.added.length, addedHtml, true)}
+      ${grp('chg', '🔄', 'Cambian de estado', pv.changed.length, changedHtml, true)}
+      ${grp('rem', '➖', 'Ya no están en el CSV', pv.removed.length, removedHtml, pv.removed.length <= 12)}
+    </div>
+    <div class="recon-unchanged">= ${pv.unchanged} sin cambios</div>
+    <div style="display:flex;gap:10px;margin-top:18px">
+      <button class="btn" id="rcCancel" style="flex:1">Cancelar</button>
+      <button class="btn primary" id="rcApply" style="flex:2">${nothing ? 'Cerrar' : 'Aplicar cambios'}</button>
+    </div>
+    <div id="rcProg" style="margin-top:10px"></div>
+  </div>`);
+
+  const ov = overlay(inner, 'sheet');
+  const rmAll = inner.querySelector('#rmAll');
+  if (rmAll) rmAll.addEventListener('click', () => {
+    const chks = [...inner.querySelectorAll('.rmchk')]; const allOn = chks.every(c => c.checked);
+    chks.forEach(c => c.checked = !allOn); rmAll.textContent = allOn ? 'Marcar todas' : 'Desmarcar todas';
+  });
+  inner.querySelector('#rcCancel').addEventListener('click', () => ov.remove());
+  inner.querySelector('#rcApply').addEventListener('click', async () => {
+    if (nothing) { ov.remove(); return; }
+    const remove = [...inner.querySelectorAll('.rmchk:checked')].map(c => c.dataset.id);
+    const btn = inner.querySelector('#rcApply'); btn.disabled = true; btn.textContent = 'Aplicando…';
+    const prog = inner.querySelector('#rcProg');
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      fd.append('owner_id', ownerId); fd.append('remove', remove.join(','));
+      const r = await api('/reconcile/apply', { method: 'POST', body: fd });
+      prog.innerHTML = `<p style="color:var(--ink-dim);font-size:13px">Trayendo imágenes y datos de BGG…</p>
+        <div class="hbar-track"><span class="hbar-fill" id="rcfill" style="width:0%;background:var(--brass)"></span></div>`;
+      await enrichLoop(ownerId, (d, t) => { const f = $('#rcfill'); if (f) f.style.width = (t ? d / t * 100 : 100) + '%'; });
+      await loadOwners(); S.owner = ownerId; await loadGames();
+      ov.remove(); if (dataOv) dataOv.remove(); render();
+      toast(`Listo: +${r.added} altas · ${r.changed} cambios · −${r.removed} bajas`);
+    } catch (e) { prog.innerHTML = `<p style="color:var(--danger)">Error: ${esc(e.message)}</p>`; btn.disabled = false; btn.textContent = 'Aplicar cambios'; }
+  });
 }
 
 /* chequeo no intrusivo de frescura al iniciar */
@@ -1199,33 +1518,5 @@ function openOnboarding() {
   const ov = overlay(inner, 'sheet');
 }
 
-/* ================= CONFIG ================= */
-async function openConfig() {
-  let cfg; try { cfg = await api('/config'); } catch { cfg = {}; }
-  const inner = node(`<div class="sheet-body">
-    <h2 style="margin-bottom:6px">Configuración</h2>
-    <p style="color:var(--ink-dim);margin:0 0 18px;font-size:13.5px">El <b>Advisor con agente</b> usa <b>Google Gemini</b> (tiene <b>tier gratis</b>). Conseguí una API key gratis en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> y pegala acá.</p>
-    <div class="field">
-      <label>API key de Google AI Studio ${cfg.gemini_key_set ? `<span style="color:var(--good)">· configurada (${esc(cfg.gemini_key_hint)})</span>` : ''}</label>
-      <input id="cfgKey" type="password" placeholder="${cfg.gemini_key_set ? 'Ya configurada — dejá vacío para no cambiarla' : 'Pegá acá tu API key'}">
-    </div>
-    <div class="field">
-      <label>Modelo Gemini</label>
-      <input id="cfgModel" value="${esc(cfg.gemini_model || 'gemini-3.6-flash')}">
-      <p style="color:var(--ink-dim);font-size:12px;margin:6px 0 0">Viene con el último Flash gratis. Podés cambiarlo si Google saca uno nuevo.</p>
-    </div>
-    <button class="btn primary block" id="cfgSave">Guardar</button>
-    <p style="color:var(--ink-dim);font-size:12px;margin-top:12px">La key se guarda solo en tu máquina (config.json, no se sube al repo). Sin key, el Advisor funciona igual en modo determinístico.</p>
-  </div>`);
-  inner.querySelector('#cfgSave').addEventListener('click', async () => {
-    const patch = { default_engine: 'gemini', gemini_model: inner.querySelector('#cfgModel').value.trim() };
-    const key = inner.querySelector('#cfgKey').value.trim(); if (key) patch.gemini_api_key = key;
-    try {
-      const pub = await api('/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
-      S.geminiReady = !!pub.gemini_key_set;
-      ov.remove(); toast('Configuración guardada');
-      if (S.view === 'advisor') render();   // habilita/deshabilita el agente al toque
-    } catch (e) { toast('Error: ' + e.message); }
-  });
-  const ov = overlay(inner, 'sheet');
-}
+/* La config del Advisor (Gemini) vive como el tab "Advisor" del sheet "Perfiles y configuración"
+   (ver openData). Ya no hay sheet de config aparte ni botón propio en el header. */

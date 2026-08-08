@@ -4,7 +4,7 @@ import io
 import os
 import time
 
-from fastapi import FastAPI, Body, UploadFile, File, Form
+from fastapi import FastAPI, Body, UploadFile, File, Form, Query
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -20,6 +20,9 @@ WEB = os.path.join(ROOT, "web")
 
 app = FastAPI(title="BG Library")
 db.init()
+# primer arranque / tras clonar: carga el catálogo top-5000 desde el preseed versionado.
+# Idempotente: en arranques siguientes no hace nada, así los datos del usuario persisten.
+seedmod.ensure_seeded()
 
 
 @app.middleware("http")
@@ -72,6 +75,21 @@ def rename_owner(oid: int, payload: dict = Body(...)):
     return {"ok": True}
 
 
+@app.post("/api/owners/{oid}/reset")
+def reset_owner(oid: int):
+    """Vacía la colección de un perfil (borra todos sus holdings) sin borrar el perfil. Pensado
+    para 'empezar de cero' con tu propio perfil (que no se puede borrar). Después corre el GC para
+    limpiar del catálogo los juegos que quedaron sin dueño y no son top-5000."""
+    conn = db.connect()
+    n = conn.execute("SELECT COUNT(*) c FROM holdings WHERE owner_id=?", (oid,)).fetchone()["c"]
+    conn.execute("DELETE FROM holdings WHERE owner_id=?", (oid,))
+    conn.commit()
+    orphans = db.gc_orphans(conn, seedmod.preseed_id_set())
+    conn.commit()
+    conn.close()
+    return {"ok": True, "cleared": n, "gc": len(orphans)}
+
+
 @app.delete("/api/owners/{oid}")
 def delete_owner(oid: int):
     conn = db.connect()
@@ -101,25 +119,69 @@ def list_games(owner: int = 0):
     return {"owner": owner, "games": games}
 
 
+# orden: (expresión, dirección natural para dir=1). dir=-1 invierte.
+BGG_SORT = {
+    "rank":   ("g.rank_overall", "ASC"),
+    "rating": ("g.rating_bayes", "DESC"),
+    "weight": ("g.weight", "DESC"),
+    "year":   ("CAST(g.yearpublished AS INTEGER)", "DESC"),
+    "name":   ("g.name COLLATE NOCASE", "ASC"),
+    "time":   ("COALESCE(NULLIF(g.maxplaytime,0), g.minplaytime)", "ASC"),
+}
+# complejidad: espeja weightBucket del front (light=buckets 0-1, mid=2, heavy=3-4)
+BGG_WEIGHT = {"light": (0.01, 2.1), "mid": (2.1, 2.7), "heavy": (2.7, 99.0)}
+# duración efectiva de un juego (maxplaytime, cae a minplaytime, 0 si nada)
+_PLAYTIME = "COALESCE(NULLIF(g.maxplaytime,0), NULLIF(g.minplaytime,0), 0)"
+
+
 @app.get("/api/bgg")
-def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = ""):
-    """Browse del top de BGG (por rank) con tu estado (own/wishlist) por juego. Paginado."""
+def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = "",
+               types: str = "", players: int = 0,
+               time_f: str = Query("", alias="time"), weight: str = "",
+               sort: str = "rank", direction: int = Query(1, alias="dir")):
+    """Browse del top de BGG (por rank) con tu estado (own/wishlist) por juego.
+    Filtros y orden server-side (mismos criterios que la Biblioteca). Paginado."""
     conn = db.connect()
     owner = owner or db.get_me(conn)
-    where = "g.rank_overall IS NOT NULL AND g.rank_overall > 0"
-    join_params = [owner]
-    where_params = []
+    where = ["g.rank_overall IS NOT NULL", "g.rank_overall > 0"]
+    params = []
     if q.strip():
-        where += " AND g.name LIKE ? COLLATE NOCASE"
-        where_params.append(f"%{q.strip()}%")
-    total = conn.execute(f"SELECT COUNT(*) c FROM games g WHERE {where}", where_params).fetchone()["c"]
+        where.append("g.name LIKE ? COLLATE NOCASE")
+        params.append(f"%{q.strip()}%")
+    sel_types = [t.strip() for t in types.split(",") if t.strip()]
+    if sel_types:
+        # subdomains se guarda como JSON: ["Strategy Games", ...]; matcheo por el nombre entrecomillado
+        where.append("(" + " OR ".join("g.subdomains LIKE ?" for _ in sel_types) + ")")
+        params += [f'%"{t}"%' for t in sel_types]
+    if players:
+        where.append("g.minplayers <= ? AND g.maxplayers >= ?")
+        params += [players, players]
+    if time_f == "short":
+        where.append(f"{_PLAYTIME} > 0 AND {_PLAYTIME} < 30")
+    elif time_f == "mid":
+        where.append(f"{_PLAYTIME} BETWEEN 30 AND 89")
+    elif time_f == "long":
+        where.append(f"{_PLAYTIME} >= 90")
+    if weight in BGG_WEIGHT:
+        lo, hi = BGG_WEIGHT[weight]
+        where.append("g.weight >= ? AND g.weight < ?")
+        params += [lo, hi]
+    where_sql = " AND ".join(where)
+
+    expr, base_dir = BGG_SORT.get(sort, BGG_SORT["rank"])
+    if direction != 1:
+        base_dir = "ASC" if base_dir == "DESC" else "DESC"
+    # NULLs siempre al final, sin importar la dirección; desempate estable por rank
+    order_sql = f"({expr}) IS NULL, {expr} {base_dir}, g.rank_overall ASC"
+
+    total = conn.execute(f"SELECT COUNT(*) c FROM games g WHERE {where_sql}", params).fetchone()["c"]
     rows = conn.execute(f"""
         SELECT g.*, h.own, h.wishlist, h.wishlist_priority
         FROM games g LEFT JOIN holdings h ON h.objectid=g.objectid AND h.owner_id=?
-        WHERE {where}
-        ORDER BY g.rank_overall ASC
+        WHERE {where_sql}
+        ORDER BY {order_sql}
         LIMIT ? OFFSET ?
-    """, join_params + where_params + [per, page * per]).fetchall()
+    """, [owner] + params + [per, page * per]).fetchall()
     conn.close()
     games = []
     for r in rows:
@@ -227,6 +289,46 @@ async def import_csv(file: UploadFile = File(...), owner_name: str = Form(""),
     res = seedmod.import_csv(text, target, mode=mode, fetch_missing=False)
     res["owner_id"] = target
     return res
+
+
+@app.post("/api/reseed")
+def reseed_catalog_ep():
+    """Recarga el catálogo top-5000 desde el preseed del repo (útil tras un `git pull` que lo
+    actualizó). Solo toca el catálogo de juegos; NO toca tu colección (holdings). Pasada A de
+    'Actualizar todo'."""
+    return seedmod.reseed_catalog()
+
+
+@app.post("/api/update/refresh")
+def update_refresh_ep(limit: int = 25, days: int = 30):
+    """Pasada B de 'Actualizar todo': re-baja de BGG (por lotes, resumible) SOLO los juegos
+    tenidos fuera del preseed y vencidos (>`days`). Diff real — no re-baja el top-5000 (eso lo
+    hizo A desde el archivo local) ni lo que ya está fresco."""
+    return seedmod.refresh_out_of_preseed(limit=limit, days=days)
+
+
+@app.post("/api/update/gc")
+def update_gc_ep():
+    """Pasada C de 'Actualizar todo': GC de huérfanos (ni preseed ni tenidos)."""
+    return seedmod.gc_run()
+
+
+@app.post("/api/reconcile/preview")
+async def reconcile_preview_ep(file: UploadFile = File(...), owner_id: int = Form(...)):
+    """Dry-run del re-import: agrupa altas / cambios / bajas / sin-cambios para que el usuario
+    confirme antes de tocar nada."""
+    text = (await file.read()).decode("utf-8-sig", errors="replace")
+    return seedmod.reconcile_preview(text, owner_id)
+
+
+@app.post("/api/reconcile/apply")
+async def reconcile_apply_ep(file: UploadFile = File(...), owner_id: int = Form(...),
+                             remove: str = Form("")):
+    """Aplica el re-import: altas+cambios siempre; bajas solo las confirmadas (`remove`, CSV de
+    objectids); después GC."""
+    text = (await file.read()).decode("utf-8-sig", errors="replace")
+    ids = [x.strip() for x in remove.split(",") if x.strip()]
+    return seedmod.reconcile_apply(text, owner_id, confirm_removals=ids)
 
 
 @app.get("/api/enrich")

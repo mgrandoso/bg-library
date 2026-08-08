@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS holdings (
 CREATE INDEX IF NOT EXISTS idx_h_owner ON holdings(owner_id);
 CREATE INDEX IF NOT EXISTS idx_h_own ON holdings(own);
 CREATE INDEX IF NOT EXISTS idx_h_wish ON holdings(wishlist);
+CREATE INDEX IF NOT EXISTS idx_g_rank ON games(rank_overall);
 """
 
 
@@ -162,29 +163,29 @@ def row_to_game(row, owners_owning=None):
 
 
 def games_for_owner(conn, owner_id):
-    """Catálogo con el estado (holding) del owner dado + quién más lo tiene."""
+    """Los juegos que el owner tiene/quiere (con datos del catálogo) + quién más los tiene.
+    Parte de `holdings` (no del catálogo completo), así el costo escala con el tamaño de SU
+    colección y no con el del catálogo — clave ahora que `games` tiene miles de filas."""
     rows = conn.execute("""
         SELECT g.*, h.own, h.wishlist, h.wishlist_priority, h.wishlist_comment,
                h.user_rating, h.numplays, h.notes, h.added_manually, h.updated_at
-        FROM games g
-        LEFT JOIN holdings h ON h.objectid=g.objectid AND h.owner_id=?
+        FROM holdings h JOIN games g ON g.objectid=h.objectid
+        WHERE h.owner_id=?
         ORDER BY g.name COLLATE NOCASE
     """, (owner_id,)).fetchall()
 
-    # mapa objectid -> [nombres de owners que lo tienen (own=1)]
+    # mapa objectid -> [nombres de owners que lo tienen (own=1)], solo para los juegos devueltos
+    ids = [r["objectid"] for r in rows]
     owning = {}
-    for r in conn.execute("""
-        SELECT h.objectid, o.name FROM holdings h JOIN owners o ON o.id=h.owner_id
-        WHERE h.own=1
-    """).fetchall():
-        owning.setdefault(r["objectid"], []).append(r["name"])
+    if ids:
+        ph = ",".join("?" for _ in ids)
+        for r in conn.execute(f"""
+            SELECT h.objectid, o.name FROM holdings h JOIN owners o ON o.id=h.owner_id
+            WHERE h.own=1 AND h.objectid IN ({ph})
+        """, ids).fetchall():
+            owning.setdefault(r["objectid"], []).append(r["name"])
 
-    out = []
-    for r in rows:
-        g = dict(r)
-        # solo devolvemos juegos que tengan holding de alguien O sean del catálogo base con estado
-        out.append(row_to_game(g, owners_owning=owning.get(g["objectid"], [])))
-    return out
+    return [row_to_game(dict(r), owners_owning=owning.get(r["objectid"], [])) for r in rows]
 
 
 def upsert_bgg(conn, rec):
@@ -217,6 +218,35 @@ def upsert_bgg(conn, rec):
         cols = ", ".join(present)
         ph = ", ".join(f":{f}" for f in present)
         conn.execute(f"INSERT INTO games ({cols}) VALUES ({ph})", vals)
+
+
+def _chunks(seq, n=400):
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
+
+
+def gc_orphans(conn, keep_ids):
+    """Recolección de huérfanos del catálogo (flujo de ciclo de vida de datos).
+
+    Regla: el catálogo `games` = (top-5000 del preseed) ∪ (todo lo que alguien tiene/quiere).
+    Un juego es *huérfano* si NO está en `keep_ids` (los objectid del preseed top-5000 actual) y
+    NO lo tiene ni lo desea ningún perfil (ningún holding con own=1 o wishlist=1). Los huérfanos
+    se borran del catálogo (y se limpian holdings fantasma —own=0 y wishlist=0— que apunten a
+    ellos). Devuelve la lista de objectids borrados.
+
+    Es idempotente y barato; lo usan tanto 'Actualizar todo' (pasada C) como la reconciliación de
+    import. `keep_ids` debe ser la *pertenencia al preseed*, NO el rank guardado: un juego que cayó
+    del top (p. ej. #4998→#5025) ya no está en el preseed, así que si nadie lo tiene, se cae."""
+    keep = set(keep_ids)
+    held = {r["objectid"] for r in conn.execute(
+        "SELECT DISTINCT objectid FROM holdings WHERE own=1 OR wishlist=1").fetchall()}
+    all_ids = {r["objectid"] for r in conn.execute("SELECT objectid FROM games").fetchall()}
+    orphans = [i for i in all_ids if i not in keep and i not in held]
+    for chunk in _chunks(orphans):
+        ph = ",".join("?" for _ in chunk)
+        conn.execute(f"DELETE FROM holdings WHERE objectid IN ({ph})", chunk)
+        conn.execute(f"DELETE FROM games WHERE objectid IN ({ph})", chunk)
+    return orphans
 
 
 def set_holding(conn, owner_id, objectid, patch):
