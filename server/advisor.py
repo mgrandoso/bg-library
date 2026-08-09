@@ -88,7 +88,7 @@ def _vibe_bonus(vibe, w):
         lo, hi = WEIGHT_BANDS[v]
         if lo <= w <= hi:
             return 22, {"light": "liviano", "medium": "de peso medio",
-                        "heavy": "con chicha para pensar"}[v]
+                        "heavy": "para pensar en serio"}[v]
     best = 0                                           # si no, bonus parcial por cercania
     for v in vibes:
         lo, hi = WEIGHT_BANDS[v]
