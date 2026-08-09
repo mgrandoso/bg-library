@@ -1525,16 +1525,18 @@ function renderResults(out) {
     const g = byId[p.objectid] || p;
     const c = node(`<div class="rec-card">
       <div class="rec-rank">${idx + 1}</div>
-      <div class="cover"><img src="${esc(safeImg(p.image || p.thumb))}" alt=""></div>
+      <div class="rec-media">
+        <div class="cover"><img src="${esc(safeImg(p.image || p.thumb))}" alt=""></div>
+        <button class="btn ghost rec-ficha">Ver ficha</button>
+      </div>
       <div>
         <h3>${esc(p.name)}</h3>
         <div class="chips-line" style="margin:6px 0">${(p.subdomains || []).map(s => `<span class="type-tag" style="--c:${typeColor(s)}">${typeEs(s)}</span>`).join('')} ${weightbar(p.weight)}</div>
         <div class="rec-pitch">${esc(p.pitch)}</div>
         <div class="rec-why">${(p.reasons || []).map(r => `<span class="tagchip">✓ ${esc(r)}</span>`).join('')}</div>
-        <div style="margin-top:10px"><button class="btn ghost">Ver ficha</button></div>
       </div>
     </div>`);
-    c.querySelector('button').addEventListener('click', () => openDetail(g));
+    c.querySelector('.rec-ficha').addEventListener('click', () => openDetail(g));
     res.append(c);
   });
   // acciones: reintentar con Gemini (si cayó al determinístico) + sorprendeme + volver a buscar

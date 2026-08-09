@@ -536,7 +536,9 @@ select, .mini-select {
 
 .rec-card { display: grid; grid-template-columns: 130px 1fr; gap: 18px; background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow-card); animation: fade .4s; transition: .18s; position: relative; }
 .rec-card:hover { border-color: var(--line); transform: translateY(-2px); box-shadow: var(--shadow-lift); }
-.rec-card .cover { border-radius: 12px; overflow: hidden; align-self: start; box-shadow: var(--shadow-card); }
+.rec-media { display: flex; flex-direction: column; gap: 10px; align-self: start; }
+.rec-card .cover { border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card); }
+.rec-ficha { width: 100%; padding: 7px 10px; font-size: 13px; }
 .rec-card .cover img { width: 100%; display: block; }
 .rec-card h3 { font-size: 20px; padding-right: 20px; }
 .rec-rank {
