@@ -54,10 +54,11 @@ def import_csv(text, owner_id, mode="both", bgg_lookup=None, fetch_missing=False
     """Carga un CSV de colección BGG en las holdings de `owner_id`.
     mode: 'own' (solo lo que tiene) | 'both' (own + wishlist).
 
-    Expansiones: se excluyen aguas arriba, en el propio export de BGG (el link recomendado lleva
-    `excludesubtype=boardgameexpansion`, verificado), así el CSV no las trae. No las filtramos por
-    fila acá porque el CSV de BGG no expone el subtype y fetchear cada juego para saberlo sería
-    carísimo. El guard interactivo (`/api/games/add`, `/api/lookup`) cubre las altas a mano."""
+    Expansiones: el link de export usa `subtype=boardgame`, así que normalmente el CSV no las trae.
+    No las filtramos por fila acá (el CSV no expone el subtype y fetchear cada juego sería caro). Si
+    alguna igual se cuela, `absorb_expansion()` la resuelve en el pase de enrich —que ya fetchea cada
+    juego nuevo, sin costo extra—: la cuelga de su base own/wish o la descarta, dejando el import por
+    CSV comportándose como el alta a mano (`/api/games/add`, `/api/lookup`)."""
     conn = db.connect()
     reader = csv.DictReader(io.StringIO(text))
     updated = added_games = skipped = 0
@@ -95,6 +96,35 @@ def import_csv(text, owner_id, mode="both", bgg_lookup=None, fetch_missing=False
     conn.commit()
     conn.close()
     return {"updated": updated, "added_games": added_games, "skipped": skipped}
+
+
+def absorb_expansion(conn, owner_id, rec):
+    """Absorbe una expansión que se coló en el import (el CSV de BGG no expone el subtype, así que
+    una expansión puede entrar como si fuera un juego suelto). Usa la ficha BGG que el `enrich` YA
+    fetcheó (`rec` con `is_expansion`/`expands`) — sin costo de red extra — para dejar el import por
+    CSV comportándose como el alta a mano: la saca de games/holdings de este perfil y, si el perfil
+    tiene (own o wish) alguno de sus juegos base, la **cuelga** de él (tabla `expansions`) con el
+    mismo estado; si no tiene ningún base, la **descarta**. No commitea (lo hace el caller).
+    Devuelve 'attached' | 'discarded', o None si `rec` no es expansión / el perfil no la tenía."""
+    if not rec.get("is_expansion"):
+        return None
+    oid = str(rec.get("objectid"))
+    h = conn.execute("SELECT own, wishlist FROM holdings WHERE owner_id=? AND objectid=?",
+                     (owner_id, oid)).fetchone()
+    if not h:
+        return None                              # este perfil no la tenía: nada que absorber
+    state = "own" if h["own"] else "wish"        # con qué estado la tenía el import
+    conn.execute("DELETE FROM holdings WHERE owner_id=? AND objectid=?", (owner_id, oid))
+    attached = False
+    for base in rec.get("expands") or []:        # cuelga del primer base que el perfil tenga/desee
+        base_oid = str(base.get("id"))
+        if db.owns_or_wishes(conn, owner_id, base_oid):
+            db.set_expansion(conn, owner_id, base_oid, oid, rec.get("name"), state,
+                             short_description=rec.get("short_description"))
+            attached = True
+            break
+    db.remove_if_orphan(conn, oid)               # limpia el juego suelto si ya nadie lo tiene y no es top
+    return "attached" if attached else "discarded"
 
 
 BGG_TOP = os.path.join(ROOT, "data", "bgg_top.json")

@@ -9,6 +9,17 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-08-09 — Import más inteligente + fix de onboarding
+### Changed
+- El **import por CSV** ahora absorbe las expansiones coladas igual que el alta a mano: en el pase
+  de enriquecimiento (que ya fetchea cada juego nuevo, **sin costo de red extra**) detecta la
+  expansión y la **cuelga del juego base** si lo tenés/deseás —con su estado own/wish—, o la
+  **descarta** si no tenés el base. Ya no entran como juegos sueltos que ensucian listas/stats/advisor.
+### Fixed
+- **Onboarding**: subir el CSV ya no cierra el asistente. Al terminar muestra el éxito, deshabilita
+  los botones de "cómo empezar" y ofrece un botón **"Entrar a la Ludoteca"**, así podés seguir
+  configurando el Advisor (API key) y el modo seguro antes de entrar.
+
 ## [0.7.0] — 2026-08-09 — Self-hosting con Docker
 ### Added
 - **Docker**: `Dockerfile` + `docker-compose.yml` con volumen `ludoteca_data` (la DB `bg.db` y

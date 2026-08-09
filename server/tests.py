@@ -3,6 +3,7 @@ Cubren la lógica pura del advisor/bgg y una integración contra la DB seedeada.
 import bgg
 import advisor
 import db
+import seed
 
 db.init()  # garantiza migraciones idempotentes (p. ej. columna es_name) antes de testear
 
@@ -778,6 +779,47 @@ try:
     conn.close()
 except Exception as e:  # noqa
     check(f"saved_recs ({e})", False)
+
+# ---- import: absorber expansiones coladas (se cuelgan del base own/wish, o se descartan) ----
+try:
+    conn = db.connect(); _me = db.get_me(conn)
+    db.upsert_bgg(conn, {"objectid": "__QA_BASE__", "name": "Base QA"})
+    db.set_holding(conn, _me, "__QA_BASE__", {"own": 1})
+    # expansión colada como juego suelto (own), con su base en la colección
+    db.upsert_bgg(conn, {"objectid": "__QA_EXP__", "name": "Expa QA"})
+    db.set_holding(conn, _me, "__QA_EXP__", {"own": 1})
+    _rec = {"objectid": "__QA_EXP__", "name": "Expa QA", "is_expansion": True,
+            "expands": [{"id": "__QA_BASE__", "name": "Base QA"}], "short_description": "sd"}
+    _res = seed.absorb_expansion(conn, _me, _rec); conn.commit()
+    check("absorb: con base own la cuelga (attached)", _res == "attached")
+    _mine = db.expansions_for(conn, _me, "__QA_BASE__")
+    check("absorb: queda en expansions del base, estado own",
+          any(e["exp_oid"] == "__QA_EXP__" and e["state"] == "own" for e in _mine))
+    check("absorb: ya NO es holding suelto",
+          conn.execute("SELECT 1 FROM holdings WHERE owner_id=? AND objectid='__QA_EXP__'",
+                       (_me,)).fetchone() is None)
+    check("absorb: ya NO está en games (juego suelto borrado)",
+          conn.execute("SELECT 1 FROM games WHERE objectid='__QA_EXP__'").fetchone() is None)
+    # expansión sin base en la colección -> se descarta
+    db.upsert_bgg(conn, {"objectid": "__QA_EXP2__", "name": "Expa Huerfana"})
+    db.set_holding(conn, _me, "__QA_EXP2__", {"wishlist": 1})
+    _rec2 = {"objectid": "__QA_EXP2__", "name": "Expa Huerfana", "is_expansion": True,
+             "expands": [{"id": "__QA_NOBASE__", "name": "Base ausente"}]}
+    _res2 = seed.absorb_expansion(conn, _me, _rec2); conn.commit()
+    check("absorb: sin base own/wish la descarta", _res2 == "discarded")
+    check("absorb: la descartada no queda como holding",
+          conn.execute("SELECT 1 FROM holdings WHERE owner_id=? AND objectid='__QA_EXP2__'",
+                       (_me,)).fetchone() is None)
+    check("absorb: un juego que NO es expansión no se toca (None)",
+          seed.absorb_expansion(conn, _me, {"objectid": "__QA_BASE__", "is_expansion": False}) is None)
+    for _oid in ("__QA_BASE__", "__QA_EXP__", "__QA_EXP2__"):
+        conn.execute("DELETE FROM holdings WHERE objectid=?", (_oid,))
+        conn.execute("DELETE FROM games WHERE objectid=?", (_oid,))
+    conn.execute("DELETE FROM expansions WHERE base_oid='__QA_BASE__'")
+    conn.commit(); conn.close()
+    check("cleanup absorb_expansion", True)
+except Exception as e:  # noqa
+    check(f"absorb_expansion ({e})", False)
 
 print(f"\n{PASS} ok, {FAIL} fail")
 raise SystemExit(1 if FAIL else 0)

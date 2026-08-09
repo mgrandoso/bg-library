@@ -642,7 +642,14 @@ def enrich(owner: int = 0, limit: int = 20):
     done = 0
     for oid in remaining_ids[:limit]:
         try:
-            db.upsert_bgg(conn, bgg.fetch(oid))
+            rec = bgg.fetch(oid)
+            # Expansión colada por el import (el CSV de BGG no trae subtype): en vez de dejarla como
+            # juego suelto, se cuelga del base own/wish o se descarta — como el alta a mano. Barato:
+            # reusa este fetch, sin llamadas extra.
+            if rec.get("is_expansion"):
+                seedmod.absorb_expansion(conn, owner, rec)
+            else:
+                db.upsert_bgg(conn, rec)
             done += 1
         except Exception:
             pass
