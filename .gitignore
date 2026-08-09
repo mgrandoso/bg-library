@@ -24,3 +24,4 @@ data/_*.json
 data/*.tmp
 data/*.bak
 data/*.retired
+PENDING.md
