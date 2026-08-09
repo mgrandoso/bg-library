@@ -2241,7 +2241,13 @@ function openOnboarding() {
             const f = $('#obfill'), n = $('#obnum'); if (f) f.style.width = pc + '%'; if (n) n.textContent = rem;
           });
         }
-        await loadGames(); ov.remove(); render();
+        await loadGames(); render();   // poblá la biblioteca detrás SIN cerrar: el onboarding sigue
+        // No auto-cerramos: el tema / modo seguro / API key viven en esta misma pantalla. El usuario
+        // sigue configurando y cierra con "Entrar" (o desde "Configurar el Advisor"). (fix onboarding)
+        inner.querySelectorAll('.onb').forEach(x => { x.disabled = true; x.style.opacity = '.45'; x.style.pointerEvents = 'none'; });
+        prog.innerHTML = `<div class="onb-key">✅ <b>¡Listo! ${r.updated} juegos cargados.</b> Si querés, configurá el Advisor acá arriba (opcional); cuando estés, entrá.</div>
+          <button class="btn primary" id="onbEnter" style="margin-top:12px">Entrar a la Ludoteca →</button>`;
+        prog.querySelector('#onbEnter').addEventListener('click', () => ov.remove());
         toast(`¡Listo! ${r.updated} juegos cargados.`);
       } catch (e) { prog.innerHTML = `<p style="color:var(--danger)">Error: ${esc(e.message)}</p>`; }
     };
