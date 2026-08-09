@@ -1,0 +1,31 @@
+# Ludoteca (bg-library) — self-hosting con Docker.
+#
+# La DB (bg.db) y la config editable (config.json, con la API key de Google Studio) se guardan en
+# el volumen `ludoteca_data` (montado en /data), NO en la imagen: los redeploys/upgrades reconstruyen
+# el código pero reusan el volumen, asi que tus datos y tu API key sobreviven.
+#
+# Primer arranque: la DB nace vacia. Importa tu coleccion (CSV de BGG) y carga la API key desde la UI.
+services:
+  ludoteca:
+    build: .
+    image: bg-library:latest
+    container_name: ludoteca
+    restart: unless-stopped
+    ports:
+      - "8778:8778"
+    environment:
+      BG_DB_PATH: /data/bg.db
+      BG_CONFIG_PATH: /data/config.json
+      # Opcional: inyectar la API key por entorno en vez de cargarla desde la UI.
+      # GEMINI_API_KEY: "tu-api-key"
+    volumes:
+      - ludoteca_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8778/api/config', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  ludoteca_data:

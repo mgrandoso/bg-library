@@ -7,7 +7,7 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-PATH = os.path.join(ROOT, "config.json")
+PATH = os.environ.get("BG_CONFIG_PATH") or os.path.join(ROOT, "config.json")
 
 SERVICE = "ludoteca"          # namespace en el keychain
 KEY_NAME = "gemini_api_key"

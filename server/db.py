@@ -10,7 +10,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-DB_PATH = os.path.join(ROOT, "bg.db")
+DB_PATH = os.environ.get("BG_DB_PATH") or os.path.join(ROOT, "bg.db")
 
 # Tamaño del top canónico. La PERTENENCIA al top es DINÁMICA: "está en el top" = rank_overall<=TOP_N
 # en la propia base (que el update reconcilia contra el dump del día), NO las claves del seed. El
