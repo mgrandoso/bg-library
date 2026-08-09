@@ -1,0 +1,33 @@
+# git / meta
+.git
+.github
+.gitattributes
+.gitignore
+.claude
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# dev-only: scripts de build one-off y docs (no runtime)
+build/
+docs/
+*.md
+LICENSE
+
+# datos y config LOCALES — nunca en la imagen (viven en el volumen /data)
+bg.db
+bg.db-wal
+bg.db-shm
+config.json
+collection.csv
+data/bgg_data.json
+data/_*.json
+data/*.tmp
+data/*.bak
+data/*.retired
+
+# tests
+server/tests.py
