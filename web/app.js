@@ -44,32 +44,104 @@ const LANG = {
 };
 const typeEs = (s) => (SUBDOMAIN[s] ? SUBDOMAIN[s][0] : s);
 const typeColor = (s) => (SUBDOMAIN[s] ? SUBDOMAIN[s][1] : 'var(--brass)');
+// apariencias disponibles (ids de tema); usado desde init(), por eso vive arriba
+const APPEARANCES = ['classic', 'fresca', 'calida'];
+// candado SVG (line-style, a tono con el resto de los íconos del header): cerrado / abierto.
+// Viven arriba porque applyLockUI() los usa desde bindTop() (temprano en init) → evita TDZ.
+const LOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+const UNLOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>';
+
+// Grupo "Mecánicas" (ítem 9): set CURADO por intención de filtrado (no por frecuencia). Cada
+// entrada: [string canónico de BGG, etiqueta ES]. Se combinan OR entre sí y AND con el resto.
+const MECHANICS = [
+  ['Cooperative Game', '🤝 Cooperativo'],
+  ['Solo / Solitaire Game', '🧍 Solo'],
+  ['Scenario / Mission / Campaign Game', '📜 Campaña'],
+  ['Team-Based Game', '👥 Por equipos'],
+  ['Deck, Bag, and Pool Building', '🃏 Deck/Bag building'],
+  ['Worker Placement', '👷 Worker placement'],
+  ['Push Your Luck', '🎲 Push your luck'],
+  ['Take That', '😈 Take That'],
+];
 
 /* ---------- estado ---------- */
 const S = {
   games: [], owners: [], owner: 0, view: 'library',
-  filters: { q: '', types: new Set(), players: 0, time: '', weight: '', designer: '', sort: 'rank', sortDir: 1 },
+  filters: { q: '', types: new Set(), mechanics: new Set(), players: 0, time: '', weight: '', designer: '', sort: 'rank', sortDir: 1 },
   stats: null, geminiReady: false, panelSource: 'own',
+  // modo seguro: on/pin persisten en localStorage; `unlocked` vive SOLO en memoria → siempre
+  // arranca cerrado (cubre F5 y reabrir el navegador). Es un freno anti-toques, no seguridad real.
+  safe: { on: false, pin: '', unlocked: false },
+  appearance: 'classic',
 };
 /* estado del browse de BGG (paginado, persiste al navegar) */
 const BGGV = { games: [], page: 0, q: '', total: 0, hasMore: false, loading: false, owner: 0,
-  types: new Set(), players: 0, time: '', weight: '', sort: 'rank', sortDir: 1 };
+  types: new Set(), mechanics: new Set(), players: 0, time: '', weight: '', sort: 'rank', sortDir: 1 };
 
 /* ================= arranque ================= */
 init();
 async function init() {
+  loadAppearance();
+  loadSafe();
   bindTop();
   await loadOwners();
   await Promise.all([loadGames(), loadConfig()]);
   render();
   maybeOnboard();
   checkFreshness();
+  maybeNudge();
 }
 
 function meOwner() { return S.owners.find(o => o.id === S.owner) || S.owners.find(o => o.is_me) || S.owners[0]; }
 function maybeOnboard() {
   const me = S.owners.find(o => o.is_me);
   if (me && (me.own_count + me.wish_count) === 0) openOnboarding();
+}
+
+/* ---------- nudges no-nag (ítem 5) ---------- */
+// Barra descartable entre el header y el contenido. Un solo nudge por vez.
+function showNudge(html, onYes, onDismiss) {
+  const old = $('#nudgeBar'); if (old) old.remove();
+  const bar = node(`<div id="nudgeBar" class="nudge">
+    <span class="nudge-ic">💡</span><span class="nudge-txt">${html}</span>
+    <button class="btn primary sm nudge-yes">Actualizar</button>
+    <button class="nudge-x" title="Ahora no" aria-label="Descartar">✕</button>
+  </div>`);
+  bar.querySelector('.nudge-yes').addEventListener('click', async () => { if (onDismiss) onDismiss(); bar.remove(); await onYes(); });
+  bar.querySelector('.nudge-x').addEventListener('click', () => { if (onDismiss) onDismiss(); bar.remove(); });
+  $('#app').insertBefore(bar, $('#main'));
+}
+
+async function maybeNudge() {
+  let n; try { n = await api('/nudges?owner=' + S.owner); } catch { return; }
+  // (a) pendientes de nombre en español: SOLO si hay key (sin ella no se pueden resolver).
+  //     Umbral 10; tras descartar, no vuelve hasta cruzar el próximo tramo (~+10).
+  if (n.gemini_ready && n.es_pending >= 10) {
+    const at = +sessionStorage.getItem('nudgeEsAt') || 0;
+    if (n.es_pending >= at + 10) {
+      return showNudge(`Tenés <b>${n.es_pending}</b> juegos sin nombre en español. ¿Actualizar ahora?`,
+        runUpdateFromNudge, () => sessionStorage.setItem('nudgeEsAt', n.es_pending));
+    }
+  }
+  // (b) antigüedad: más de 6 meses sin actualizar rankings. Una vez por sesión.
+  if (n.stale_days != null && n.stale_days > 180 && !sessionStorage.getItem('nudgeStale')) {
+    const meses = Math.max(6, Math.round(n.stale_days / 30));
+    showNudge(`Hace <b>${meses} meses</b> que no actualizás los rankings. ¿Actualizar?`,
+      runUpdateFromNudge, () => sessionStorage.setItem('nudgeStale', '1'));
+  }
+}
+
+// dispara el mismo "Actualizar" del tab de datos (ítem 4) y refresca la vista
+async function runUpdateFromNudge() {
+  toast('Actualizando rankings…');
+  try {
+    const r = await api('/update', { method: 'POST' });
+    BGGV.owner = -1; await loadGames(); await loadOwners();
+    if (S.view === 'panel' || S.view === 'bgg') render();
+    const es = r.es_names || {};
+    const tandas = es.tandas > 1 ? ` (en ${es.tandas} tandas)` : '';
+    toast(es.resolved ? `Listo · ${es.resolved} nombres en español resueltos${tandas}` : 'Actualización completa');
+  } catch (e) { toast('Error: ' + e.message); }
 }
 
 function bindTop() {
@@ -85,10 +157,177 @@ function bindTop() {
     localStorage.setItem('theme', h.dataset.theme);
   });
   if (localStorage.getItem('theme')) document.documentElement.dataset.theme = localStorage.getItem('theme');
-  $('#btnAdd').addEventListener('click', openAdd);
+  $('#btnAdd').addEventListener('click', () => { if (ensureUnlocked()) openAdd(); });
+  $('#btnLock').addEventListener('click', toggleLock);
   $('#btnCfg').addEventListener('click', () => openData());   // hub único: perfiles + datos + config
   $('#ownerSel').addEventListener('change', async e => {
     S.owner = +e.target.value; await loadGames(); render();
+  });
+  applyLockUI();
+}
+
+/* ================= apariencias ================= */
+// Tres temas: 'classic' (con día/noche 🌙), 'fresca' y 'calida' (claros, sin 🌙).
+// El id se guarda por dispositivo en localStorage, igual que el tema día/noche.
+function loadAppearance() {
+  const a = localStorage.getItem('appearance');
+  S.appearance = APPEARANCES.includes(a) ? a : 'classic';
+  applyAppearance();
+}
+function applyAppearance() {
+  const root = document.documentElement;
+  if (S.appearance === 'classic') delete root.dataset.appearance;
+  else root.dataset.appearance = S.appearance;
+  const tb = $('#btnTheme'); if (tb) tb.style.display = S.appearance === 'classic' ? '' : 'none';
+}
+function setAppearance(a) {
+  if (!APPEARANCES.includes(a)) return;
+  S.appearance = a; localStorage.setItem('appearance', a); applyAppearance();
+}
+
+/* ================= modo seguro ================= */
+// Escudo anti-toques: con el candado cerrado, las acciones de escritura quedan bloqueadas.
+// `on`/`pin` persisten; el candado (unlocked) arranca SIEMPRE cerrado.
+function loadSafe() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('safe') || '{}');
+    S.safe.on = !!raw.on; S.safe.pin = typeof raw.pin === 'string' ? raw.pin : '';
+  } catch { S.safe.on = false; S.safe.pin = ''; }
+  S.safe.unlocked = false;
+}
+function saveSafe() { localStorage.setItem('safe', JSON.stringify({ on: S.safe.on, pin: S.safe.pin })); }
+// true si hay que bloquear la escritura (modo activo y candado cerrado)
+function mutationsLocked() { return S.safe.on && !S.safe.unlocked; }
+// gate para handlers de escritura: si está bloqueado avisa y devuelve false
+function ensureUnlocked() {
+  if (!mutationsLocked()) return true;
+  toast('🔒 Modo seguro activo — tocá el candado para poder editar');
+  return false;
+}
+// refleja el estado del candado en el header y (des)habilita el botón de agregar
+function applyLockUI() {
+  const lock = $('#btnLock'), add = $('#btnAdd');
+  if (lock) {
+    lock.style.display = S.safe.on ? '' : 'none';
+    lock.classList.toggle('locked', mutationsLocked());
+    lock.classList.toggle('unlocked', S.safe.on && S.safe.unlocked);
+    lock.innerHTML = mutationsLocked() ? LOCK_SVG : UNLOCK_SVG;
+    lock.title = mutationsLocked() ? 'Modo seguro: tocá para desbloquear' : 'Tocá para bloquear';
+  }
+  if (add) add.classList.toggle('disabled-soft', mutationsLocked());
+}
+async function toggleLock() {
+  if (!S.safe.on) return;
+  if (S.safe.unlocked) { S.safe.unlocked = false; afterLockChange(); toast('🔒 Bloqueado'); return; }
+  if (S.safe.pin) {
+    const pin = await askPin('Desbloquear', 'Ingresá el PIN para editar la colección.');
+    if (pin == null) return;                       // canceló
+    if (pin !== S.safe.pin) { toast('PIN incorrecto'); return; }
+  }
+  S.safe.unlocked = true; afterLockChange(); toast('🔓 Desbloqueado');
+}
+// tras abrir/cerrar el candado: actualizar header y repintar la vista (fichas abiertas se reabren)
+function afterLockChange() { applyLockUI(); render(); }
+
+// Prompt de PIN in-app (no usamos window.prompt: en webviews suele venir suprimido). Resuelve el
+// PIN escrito, o null si cancela. `expect` opcional: si se pasa, exige coincidencia antes de resolver.
+function askPin(title, msg, { confirm = false } = {}) {
+  return new Promise(resolve => {
+    const inner = node(`<div class="pin-modal">
+      <h3>${esc(title)}</h3>
+      <p>${esc(msg)}</p>
+      <div class="field"><input id="pinInput" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN"></div>
+      ${confirm ? '<div class="field"><input id="pinInput2" type="password" inputmode="numeric" autocomplete="off" placeholder="Repetir PIN"></div>' : ''}
+      <div class="confirm-actions" style="display:flex;gap:10px;margin-top:6px">
+        <button class="btn ghost" data-a="cancel" style="flex:1">Cancelar</button>
+        <button class="btn primary" data-a="ok" style="flex:1">Aceptar</button>
+      </div>
+    </div>`);
+    const ov = overlay(inner, 'pin');
+    const inp = inner.querySelector('#pinInput'), inp2 = inner.querySelector('#pinInput2');
+    const done = (v) => { ov.close(); resolve(v); };
+    inner.querySelector('[data-a="cancel"]').addEventListener('click', () => done(null));
+    inner.querySelector('[data-a="ok"]').addEventListener('click', () => {
+      const v = (inp.value || '').trim();
+      if (!v) { toast('Escribí un PIN'); return; }
+      if (confirm && v !== (inp2.value || '').trim()) { toast('Los PIN no coinciden'); return; }
+      done(v);
+    });
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { if (confirm) inp2.focus(); else inner.querySelector('[data-a="ok"]').click(); } });
+    if (inp2) inp2.addEventListener('keydown', e => { if (e.key === 'Enter') inner.querySelector('[data-a="ok"]').click(); });
+    setTimeout(() => inp.focus(), 50);
+  });
+}
+
+// Metadatos de cada apariencia para el selector (nombre + descripción + swatches representativos).
+const APPEAR_META = {
+  classic: { name: 'Clásica', tag: 'Fieltro oscuro · día/noche', sw: ['#14100c', '#e0a458', '#46b6ac', '#e06692'] },
+  fresca:  { name: 'Playa',   tag: 'Teal + coral sobre marfil',  sw: ['#f8f5f2', '#078080', '#f45d48', '#0aa1a1'] },
+  calida:  { name: 'Taberna', tag: 'Navy + madera sobre crema',  sw: ['#f9f4ef', '#8c7851', '#f25042', '#020826'] },
+};
+// Grilla de tarjetas de apariencia (reutilizable en Config y en el onboarding).
+function renderAppearanceGrid(container, onPick) {
+  container.innerHTML = '';
+  APPEARANCES.forEach(id => {
+    const m = APPEAR_META[id];
+    const card = node(`<button class="appear-card ${S.appearance === id ? 'on' : ''}" data-a="${id}">
+      <div class="appear-sw">${m.sw.map(c => `<span style="background:${c}"></span>`).join('')}</div>
+      <div class="appear-meta"><span class="appear-name">${esc(m.name)}</span>${S.appearance === id ? '<span class="appear-check">✓</span>' : ''}</div>
+    </button>`);
+    card.addEventListener('click', () => { setAppearance(id); renderAppearanceGrid(container, onPick); if (onPick) onPick(id); });
+    container.append(card);
+  });
+}
+
+// Panel de modo seguro (en Config): switch de activación + gestión de PIN. Activar/desactivar y
+// cambiar PIN respetan la regla: con PIN puesto, cada una de esas acciones lo pide.
+function renderSafeBox(container) {
+  container.innerHTML = '';
+  const on = S.safe.on, hasPin = !!S.safe.pin;
+  // Todo en una sola fila (texto · botones de PIN · switch) para que activar no agregue una línea
+  // ni cambie el alto de la sección.
+  const status = on ? `Activado${hasPin ? ' · con PIN' : ' · sin PIN'}` : 'Desactivado';
+  const btns = !on ? '' : (hasPin
+    ? '<button class="btn ghost sm" id="pinSet">Cambiar PIN</button><button class="btn ghost sm" id="pinClear">Quitar PIN</button>'
+    : '<button class="btn ghost sm" id="pinSet">Poner un PIN</button>');
+  const row = node(`<div class="safe-row">
+    <span class="safe-txt">${status}</span>
+    <span class="safe-actions">${btns}</span>
+    <label class="switch"><input type="checkbox" id="safeToggle" ${on ? 'checked' : ''}><span class="track"></span></label>
+  </div>`);
+  container.append(row);
+  const pinSet = row.querySelector('#pinSet');
+  if (pinSet) pinSet.addEventListener('click', async () => {
+    if (hasPin) {
+      const cur = await askPin('PIN actual', 'Ingresá tu PIN actual para cambiarlo.');
+      if (cur == null) return;
+      if (cur !== S.safe.pin) { toast('PIN incorrecto'); return; }
+    }
+    const np = await askPin('Nuevo PIN', 'Elegí un PIN. Te lo pedirá para abrir el candado.', { confirm: true });
+    if (np == null) return;
+    S.safe.pin = np; saveSafe(); applyLockUI(); renderSafeBox(container); toast('PIN actualizado');
+  });
+  const clr = row.querySelector('#pinClear');
+  if (clr) clr.addEventListener('click', async () => {
+    const cur = await askPin('Quitar PIN', 'Ingresá tu PIN para quitarlo.');
+    if (cur == null) return;
+    if (cur !== S.safe.pin) { toast('PIN incorrecto'); return; }
+    S.safe.pin = ''; saveSafe(); applyLockUI(); renderSafeBox(container); toast('PIN quitado');
+  });
+  row.querySelector('#safeToggle').addEventListener('change', async (e) => {
+    if (e.target.checked) {
+      // activar sin prompt: el PIN se pone (opcional) con el botón "Poner un PIN"
+      S.safe.on = true; S.safe.unlocked = true; saveSafe();   // queda abierto hasta el próximo reload
+      toast('Modo seguro activado');
+    } else {
+      if (S.safe.pin) {
+        const cur = await askPin('Desactivar modo seguro', 'Ingresá tu PIN para desactivarlo.');
+        if (cur == null || cur !== S.safe.pin) { if (cur != null) toast('PIN incorrecto'); e.target.checked = true; return; }
+      }
+      S.safe.on = false; S.safe.pin = ''; S.safe.unlocked = false; saveSafe();
+      toast('Modo seguro desactivado');
+    }
+    applyLockUI(); renderSafeBox(container);
   });
 }
 
@@ -122,8 +361,17 @@ function render() {
 function currentList(kind) {
   let list = S.games.filter(g => kind === 'own' ? g.own : g.wishlist);
   const f = S.filters;
-  if (f.q) { const q = f.q.toLowerCase(); list = list.filter(g => (g.name || '').toLowerCase().includes(q)); }
+  if (f.q) {
+    const q = f.q.toLowerCase();
+    // En Biblioteca (kind='own') el buscador matchea también por nombre de una expansión que TENÉS
+    // (📦) → surface-ea la carta del juego madre. La Wishlist busca solo por nombre de juego.
+    list = list.filter(g => (g.name || '').toLowerCase().includes(q)
+      || (g.es_name || '').toLowerCase().includes(q)
+      || (kind === 'own' && (g.expansions || []).some(
+        e => e.state === 'own' && (e.name || '').toLowerCase().includes(q))));
+  }
   if (f.types.size) list = list.filter(g => (g.subdomains || []).some(s => f.types.has(s)));
+  if (f.mechanics.size) list = list.filter(g => passesMechanics(g, f.mechanics));
   if (f.players) list = list.filter(g => (g.minplayers || 0) <= f.players && (g.maxplayers || 0) >= f.players);
   if (f.time) list = list.filter(g => {
     const t = g.maxplaytime || g.minplaytime || 0;
@@ -142,9 +390,58 @@ function currentList(kind) {
     else if (s === 'prio') cmp = ((a.wishlist_priority || 3) - (b.wishlist_priority || 3))
       || ((a.rank_overall || 1e9) - (b.rank_overall || 1e9));   // empate de prioridad -> mejor rank BGG primero
     else if (s === 'time') cmp = (a.maxplaytime || 0) - (b.maxplaytime || 0);
-    return cmp * dir;
+    else if (s === 'fit') cmp = (fitTier(a, f.players) - fitTier(b, f.players))
+      || ((a.rank_overall || 1e9) - (b.rank_overall || 1e9));   // ítem 9: mejor→peor para N jug.
+    return s === 'fit' ? cmp : cmp * dir;   // "fit" siempre mejor primero (no lo invierte el dir)
   });
   return list;
+}
+
+// cooperativo = mecánica (ítem 9), eje ortogonal a los 8 subdominios. Espeja advisor._is_coop.
+function isCoop(g) {
+  const blob = [...(g.mechanics || []), ...(g.categories || [])].join(' ');
+  return /cooperative|co-operative/i.test(blob);
+}
+// match de una mecánica curada: coop mira mechanics+categories; el resto, string canónico exacto.
+function matchesMechanic(g, canonical) {
+  return canonical === 'Cooperative Game' ? isCoop(g) : (g.mechanics || []).includes(canonical);
+}
+// OR dentro del grupo de mecánicas (pasa si tiene alguna de las seleccionadas)
+function passesMechanics(g, set) {
+  for (const m of set) if (matchesMechanic(g, m)) return true;
+  return false;
+}
+
+// Facet "Mecánicas" colapsable (ítem 9), reusable en Biblioteca y BGG. Devuelve {button, panel}:
+// el botón muestra el conteo activo y togglea el panel de 8 chips; onChange se llama al tildar.
+function mechFacet(set, onChange) {
+  const label = () => `🛠 Mecánicas${set.size ? ` (${set.size})` : ''}`;
+  const button = node(`<button class="chip mech-btn ${set.size ? 'active' : ''}" title="Filtrar por mecánica"><span class="mech-lbl">${label()}</span> <span class="caret">▾</span></button>`);
+  const panel = node('<div class="mech-panel" hidden></div>');
+  MECHANICS.forEach(([canon, lbl]) => {
+    const c = node(`<button class="chip mech-chip ${set.has(canon) ? 'active' : ''}">${lbl}</button>`);
+    c.addEventListener('click', () => {
+      set.has(canon) ? set.delete(canon) : set.add(canon);
+      c.classList.toggle('active');
+      button.classList.toggle('active', set.size > 0);
+      button.querySelector('.mech-lbl').textContent = label();
+      onChange();
+    });
+    panel.append(c);
+  });
+  button.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    button.classList.toggle('open', !panel.hidden);
+  });
+  return { button, panel };
+}
+// tier de ajuste a N jugadores: 0 ideal · 1 va bien · 2 se banca · 3 no entra (espeja playerFit)
+function fitTier(g, n) {
+  if (!n) return 3;
+  if ((g.best_players || []).includes(n)) return 0;
+  if ((g.recommended_players || []).includes(n)) return 1;
+  if ((g.minplayers || 0) <= n && (g.maxplayers || 0) >= n) return 2;
+  return 3;
 }
 
 function renderCollection(kind) {
@@ -173,7 +470,13 @@ function renderFilters(kind) {
 
   // players
   const players = node(`<select title="Jugadores"><option value="0">Jugadores</option>${[1, 2, 3, 4, 5, 6, 7, 8].map(n => `<option value="${n}" ${f.players === n ? 'selected' : ''}>${n} jugador${n > 1 ? 'es' : ''}</option>`).join('')}</select>`);
-  players.addEventListener('change', e => { f.players = +e.target.value; refreshGrid(kind); });
+  players.addEventListener('change', e => {
+    f.players = +e.target.value;
+    // ítem 9: al elegir cantidad, el orden pasa a "Mejor para N jug."; al quitarla, revierte
+    if (f.players) f.sort = 'fit';
+    else if (f.sort === 'fit') f.sort = 'rank';
+    render();   // rehace la barra para mostrar/ocultar la opción de orden por ajuste
+  });
   bar.append(players);
 
   const time = node(`<select title="Duración"><option value="">Duración</option><option value="short" ${f.time === 'short' ? 'selected' : ''}>Corto (&lt;30m)</option><option value="mid" ${f.time === 'mid' ? 'selected' : ''}>Medio (30–89m)</option><option value="long" ${f.time === 'long' ? 'selected' : ''}>Largo (90m+)</option></select>`);
@@ -191,9 +494,9 @@ function renderFilters(kind) {
   bar.append(dsel);
 
   const sortOpts = kind === 'wishlist'
-    ? [['prio', 'Prioridad'], ['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['year', 'Año'], ['name', 'Nombre']]
+    ? [['rank', 'Ranking BGG'], ['prio', 'Prioridad'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['year', 'Año'], ['name', 'Nombre']]
     : [['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['time', 'Duración'], ['year', 'Año'], ['name', 'Nombre']];
-  if (kind === 'wishlist' && f.sort === 'rank') f.sort = 'prio';   // wishlist prefiere prioridad
+  if (f.players) sortOpts.unshift(['fit', `Mejor para ${f.players} jug.`]);   // ítem 9: solo con N elegido
   const validSorts = sortOpts.map(o => o[0]);
   if (!validSorts.includes(f.sort)) f.sort = validSorts[0];        // criterio no válido para esta vista -> default
   const sort = node(`<select title="Ordenar por">${sortOpts.map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>Orden: ${l}</option>`).join('')}</select>`);
@@ -210,28 +513,31 @@ function renderFilters(kind) {
   dirBtn.classList.toggle('flipped', f.sortDir === -1);
   bar.append(dirBtn);
 
-  // chips de tipo (con Limpiar + contador al final de esta fila, no arriba)
+  // chips de tipo (8 subdominios) + facet Mecánicas + Limpiar + contador al final de esta fila
   const chips = node('<div class="type-chips"></div>');
   Object.keys(SUBDOMAIN).forEach(s => {
     const c = node(`<button class="chip ${f.types.has(s) ? 'active' : ''}" style="--c:${typeColor(s)}"><span class="dot"></span>${typeEs(s)}</button>`);
     c.addEventListener('click', () => { f.types.has(s) ? f.types.delete(s) : f.types.add(s); c.classList.toggle('active'); refreshGrid(kind); });
     chips.append(c);
   });
+  const mech = mechFacet(f.mechanics, () => refreshGrid(kind));   // grupo Mecánicas (colapsable)
+  chips.append(mech.button);
   const clearBtn = node('<button class="chip clear-filters" id="clearFilters">✕ Limpiar filtros</button>');
   clearBtn.addEventListener('click', () => {
-    S.filters = { q: '', types: new Set(), players: 0, time: '', weight: '', designer: '', sort: f.sort, sortDir: f.sortDir };
+    S.filters = { q: '', types: new Set(), mechanics: new Set(), players: 0, time: '', weight: '', designer: '', sort: f.sort === 'fit' ? 'rank' : f.sort, sortDir: f.sortDir };
     render();
   });
   clearBtn.style.display = hasActiveFilters() ? 'inline-flex' : 'none';
   chips.append(clearBtn);                                        // al lado de los tags
   chips.append(node(`<span class="count-tag" id="countTag"></span>`));  // al margen derecho
   bar.append(chips);
+  bar.append(mech.panel);                                        // fila aparte, colapsable
   return bar;
 }
 
 function hasActiveFilters() {
   const f = S.filters;
-  return !!(f.q || f.types.size || f.players || f.time || f.weight || f.designer);
+  return !!(f.q || f.types.size || f.mechanics.size || f.players || f.time || f.weight || f.designer);
 }
 function refreshGrid(kind) {
   const list = currentList(kind);
@@ -251,13 +557,14 @@ function bggParams() {
     owner: S.owner, page: BGGV.page, per: 100, q: BGGV.q, sort: BGGV.sort, dir: BGGV.sortDir,
   });
   if (BGGV.types.size) p.set('types', [...BGGV.types].join(','));
+  if (BGGV.mechanics.size) p.set('mechanics', [...BGGV.mechanics].join('~'));  // '~': los nombres traen comas
   if (BGGV.players) p.set('players', BGGV.players);
   if (BGGV.time) p.set('time', BGGV.time);
   if (BGGV.weight) p.set('weight', BGGV.weight);
   return p.toString();
 }
 function bggHasActiveFilters() {
-  return !!(BGGV.q || BGGV.types.size || BGGV.players || BGGV.time || BGGV.weight);
+  return !!(BGGV.q || BGGV.types.size || BGGV.mechanics.size || BGGV.players || BGGV.time || BGGV.weight);
 }
 
 async function bggFetch(reset) {
@@ -296,7 +603,14 @@ function renderBGGFilters() {
   bar.append(search);
 
   const players = node(`<select title="Jugadores"><option value="0">Jugadores</option>${[1, 2, 3, 4, 5, 6, 7, 8].map(n => `<option value="${n}" ${BGGV.players === n ? 'selected' : ''}>${n} jugador${n > 1 ? 'es' : ''}</option>`).join('')}</select>`);
-  players.addEventListener('change', e => { BGGV.players = +e.target.value; bggReload(); });
+  players.addEventListener('change', e => {
+    BGGV.players = +e.target.value;
+    // ítem 9: elegir cantidad activa el orden por ajuste; quitarla revierte a ranking
+    if (BGGV.players) BGGV.sort = 'fit';
+    else if (BGGV.sort === 'fit') BGGV.sort = 'rank';
+    BGGV.games = []; BGGV.page = 0;
+    renderBGG($('#main'));   // rehace la barra (muestra/oculta "fit") y recarga server-side
+  });
   bar.append(players);
 
   const time = node(`<select title="Duración"><option value="">Duración</option><option value="short" ${BGGV.time === 'short' ? 'selected' : ''}>Corto (&lt;30m)</option><option value="mid" ${BGGV.time === 'mid' ? 'selected' : ''}>Medio (30–89m)</option><option value="long" ${BGGV.time === 'long' ? 'selected' : ''}>Largo (90m+)</option></select>`);
@@ -308,6 +622,7 @@ function renderBGGFilters() {
   bar.append(weight);
 
   const sortOpts = [['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['time', 'Duración'], ['year', 'Año'], ['name', 'Nombre']];
+  if (BGGV.players) sortOpts.unshift(['fit', `Mejor para ${BGGV.players} jug.`]);   // ítem 9
   const sort = node(`<select title="Ordenar por">${sortOpts.map(([v, l]) => `<option value="${v}" ${BGGV.sort === v ? 'selected' : ''}>Orden: ${l}</option>`).join('')}</select>`);
   sort.addEventListener('change', e => { BGGV.sort = e.target.value; bggReload(); });
   bar.append(sort);
@@ -327,15 +642,18 @@ function renderBGGFilters() {
     c.addEventListener('click', () => { BGGV.types.has(s) ? BGGV.types.delete(s) : BGGV.types.add(s); c.classList.toggle('active'); bggReload(); });
     chips.append(c);
   });
+  const mech = mechFacet(BGGV.mechanics, bggReload);   // grupo Mecánicas (colapsable), server-side
+  chips.append(mech.button);
   const clearBtn = node('<button class="chip clear-filters" id="bggClear">✕ Limpiar filtros</button>');
   clearBtn.addEventListener('click', () => {
-    Object.assign(BGGV, { q: '', types: new Set(), players: 0, time: '', weight: '', games: [], page: 0 });
+    Object.assign(BGGV, { q: '', types: new Set(), mechanics: new Set(), players: 0, time: '', weight: '', sort: 'rank', games: [], page: 0 });
     renderBGG($('#main'));   // reconstruye la barra con los controles reseteados y recarga
   });
   clearBtn.style.display = bggHasActiveFilters() ? 'inline-flex' : 'none';
   chips.append(clearBtn);
   chips.append(node('<span class="count-tag" id="bggCount"></span>'));
   bar.append(chips);
+  bar.append(mech.panel);   // fila aparte, colapsable
   return bar;
 }
 
@@ -424,6 +742,7 @@ function card(g) {
       <div class="cover" style="background-image:url('${esc(safeImg(g.image || g.thumb))}')">
         ${g.rank_overall ? `<span class="rankbadge">#${g.rank_overall}</span>` : ''}
         ${stateBadge(g)}
+        ${players ? `<div class="fit-overlay">${playerFit(g, players)}</div>` : ''}
       </div>
       <div class="body">
         <div>
@@ -435,7 +754,6 @@ function card(g) {
           <span class="m">👥 ${g.minplayers || '?'}–${g.maxplayers || '?'}</span>
           <span class="m">⏱ ${g.maxplaytime || '?'}′</span>
         </div>
-        ${players ? `<div>${playerFit(g, players)}</div>` : ''}
       </div>
     </div>`);
   c.addEventListener('click', () => openDetail(g));
@@ -459,6 +777,32 @@ function overlay(inner, cls = '') {
   return ov;
 }
 
+// Confirmación in-app (no usamos window.confirm: en webviews embebidos suele quedar
+// suprimido y devolver undefined -> el handler cortaba y "el botón no respondía").
+function askConfirm(message, { ok = 'Sí, sacar', cancel = 'Cancelar' } = {}) {
+  return new Promise(resolve => {
+    const ov = node(`<div class="overlay"><div class="modal confirm">
+      <div class="confirm-msg">${esc(message).replace(/\n/g, '<br>')}</div>
+      <div class="confirm-actions">
+        <button class="btn ghost" data-a="cancel">${esc(cancel)}</button>
+        <button class="btn danger" data-a="ok">${esc(ok)}</button>
+      </div>
+    </div></div>`);
+    let done = false;
+    const onKey = (e) => { if (e.key === 'Escape') finish(false); };
+    const finish = (val) => {
+      if (done) return; done = true;
+      ov.remove(); document.removeEventListener('keydown', onKey); resolve(val);
+    };
+    ov.querySelector('[data-a="ok"]').addEventListener('click', () => finish(true));
+    ov.querySelector('[data-a="cancel"]').addEventListener('click', () => finish(false));
+    ov.addEventListener('click', e => { if (e.target === ov) finish(false); });   // click afuera = cancelar
+    document.addEventListener('keydown', onKey);
+    $('#modalRoot').append(ov);
+    ov.querySelector('[data-a="ok"]').focus();
+  });
+}
+
 function playersViz(g) {
   const best = new Set(g.best_players || []); const rec = new Set(g.recommended_players || []);
   const mx = Math.min(g.maxplayers || 0, 10);
@@ -476,7 +820,9 @@ function openDetail(g) {
     <div class="detail-hero">
       <div class="detail-side">
         <div class="cover"><img src="${esc(safeImg(g.image))}" alt=""></div>
+        ${g.es_name && g.es_name !== g.name ? `<div><div class="section-h" style="margin-top:8px">Nombre en español</div><div style="color:var(--ink);font-size:14px">${esc(g.es_name)}</div></div>` : ''}
         ${g.designers && g.designers.length ? `<div><div class="section-h" style="margin-top:8px">Diseño</div><div class="chips-line" id="desigChips">${g.designers.map(d => `<span class="tagchip click" data-d="${esc(d.name)}">🖋 ${esc(d.name)}</span>`).join('')}</div></div>` : ''}
+        <div id="expSection"></div>
         ${g.owners_owning && g.owners_owning.length ? `<div><div class="section-h">Lo tienen</div><div class="chips-line">${g.owners_owning.map(n => `<span class="tagchip">👤 ${esc(n)}</span>`).join('')}</div></div>` : ''}
         <div style="margin-top:auto;padding-top:6px"><a href="${esc(safeImg(g.href) || '#')}" target="_blank" rel="noopener">Ver en BoardGameGeek ↗</a></div>
       </div>
@@ -515,6 +861,171 @@ function openDetail(g) {
   bar.append(stateControls(g, ov => { }));
   const ov = overlay(inner);
   setupDescription(inner, g);
+  renderExpansions(inner, g);
+}
+
+/* ===== Expansiones (ítem 3): viven dentro de la ficha del juego madre ===== */
+// Sección en la ficha: las expansiones que tenés/deseás (📦/⭐) + un "＋" para agregar/editar.
+// Solo aparece si el juego está en tu colección o wishlist (si no, no podés tener expansiones).
+async function renderExpansions(inner, g) {
+  const box = inner.querySelector('#expSection'); if (!box) return;
+  if (g._preview || g._expansion) return;                 // preview sin guardar / ficha de expa
+  if (!(g.own || g.wishlist)) return;                     // gate: solo juegos tuyos
+  const draw = (mine) => {
+    g.expansions = mine;                                  // cachear para el buscador de biblioteca
+    const chips = mine.map(e =>
+      `<span class="tagchip">${e.state === 'own' ? '📦' : '⭐'} ${esc(e.name)}</span>`).join('');
+    // el lápiz de edición se oculta con el candado cerrado (modo seguro)
+    const editBtn = mutationsLocked() ? '' : ' <button class="exp-add" title="Agregar, editar o quitar expansiones">✎</button>';
+    box.innerHTML = `<div><div class="section-h" style="margin-top:8px;display:flex;align-items:center;gap:8px">
+        Expansiones${editBtn}</div>
+      ${mine.length ? `<div class="chips-line">${chips}</div>`
+        : `<div style="color:var(--ink-dim);font-size:13px">Sin expansiones cargadas.</div>`}</div>`;
+    const eb = box.querySelector('.exp-add');
+    if (eb) eb.addEventListener('click', () => openExpansionsPanel(g, draw));
+  };
+  try {
+    const d = await api(`/games/${g.objectid}/expansions?owner=${S.owner}`);
+    draw(d.mine || []);
+  } catch { box.innerHTML = ''; }
+}
+
+// Panel "Gestionar": lista las expansiones OFICIALES del juego (de BGG, lazy) + las tuyas; marcás
+// ninguno / 📦 tengo / ⭐ quiero, o abrís la ficha de cada una. Es también el editor. Las que marcás
+// suben al tope (📦 primero, luego ⭐) para editarlas fácil; se re-ordena EN VIVO en cada cambio.
+async function openExpansionsPanel(g, onChange) {
+  const inner = node(`<div class="sheet-body">
+    <h2 style="margin-bottom:2px">Expansiones</h2>
+    <p style="color:var(--ink-dim);margin:0 0 12px;font-size:13.5px">de <b>${esc(g.es_name && g.es_name !== g.name ? g.es_name : g.name)}</b> — marcá las que tenés o querés.</p>
+    <div class="field"><input id="expFilter" placeholder="Filtrar expansiones…"></div>
+    <div class="exp-list" id="expList"><div class="spinner"></div></div>
+  </div>`);
+  const ov = overlay(inner, 'sheet');
+  const listEl = inner.querySelector('#expList');
+  let items = [];
+  let curFilter = '';
+  const rankState = s => (s === 'own' ? 0 : s === 'wish' ? 1 : 2);   // 📦 arriba, ⭐, luego sin marcar
+  // refresca la sección de la ficha del madre (chips) con el estado real de la base
+  const notify = async () => {
+    try { const d = await api(`/games/${g.objectid}/expansions?owner=${S.owner}`); onChange && onChange(d.mine || []); }
+    catch { /* la sección de la ficha se re-sincroniza al reabrir */ }
+  };
+  const apply = async (it, s) => {
+    try {
+      if (s === 'none') {
+        await api(`/games/${g.objectid}/expansions/${encodeURIComponent(it.id)}?owner=${S.owner}`, { method: 'DELETE' });
+        it.state = null;
+      } else {
+        const r = await api(`/games/${g.objectid}/expansions?owner=${S.owner}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exp_oid: it.id, name: it.name, state: s })
+        });
+        if (r.error) throw new Error(r.error);
+        it.state = s;
+      }
+      render();          // re-ordena en vivo: la recién marcada sube al tope
+      notify();
+    } catch (e) { toast('Error: ' + e.message); }
+  };
+  const render = () => {
+    const q = curFilter.toLowerCase();
+    const shown = items.filter(it => !q || (it.name || '').toLowerCase().includes(q))
+      .sort((a, b) => rankState(a.state) - rankState(b.state) || (a.name || '').localeCompare(b.name || ''));
+    if (!shown.length) { listEl.innerHTML = '<p style="color:var(--ink-dim)">Sin resultados.</p>'; return; }
+    listEl.innerHTML = '';
+    shown.forEach(it => {
+      const row = node(`<div class="exp-row">
+        <div class="exp-name">${esc(it.name)}</div>
+        <div class="exp-controls">
+          <button class="exp-ficha" title="Ver ficha de la expansión">Ver</button>
+          <div class="seg sm">
+            <button data-s="none" class="${!it.state ? 'on' : ''}">—</button>
+            <button data-s="own" class="${it.state === 'own' ? 'on' : ''}">📦</button>
+            <button data-s="wish" class="${it.state === 'wish' ? 'on' : ''}">⭐</button>
+          </div>
+        </div></div>`);
+      row.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => apply(it, b.dataset.s)));
+      // "ver ficha": trae la ficha de la expa (como en la búsqueda) y deja marcarla; se refleja acá al toque
+      row.querySelector('.exp-ficha').addEventListener('click', () => openExpansionFromPanel(
+        it.id, g, it.state, (state) => { it.state = state; render(); notify(); }));
+      listEl.append(row);
+    });
+  };
+  inner.querySelector('#expFilter').addEventListener('input', e => { curFilter = e.target.value; render(); });
+  try {
+    const d = await api(`/games/${g.objectid}/expansions/catalog?owner=${S.owner}`);
+    items = d.items || [];
+    render();
+  } catch (e) { listEl.innerHTML = `<p style="color:var(--danger)">Error: ${esc(e.message)}</p>`; }
+}
+
+// Trae la ficha de una expansión desde el panel de un juego madre conocido, con su estado actual y
+// un callback que refleja el cambio en el panel + la ficha del madre.
+async function openExpansionFromPanel(expId, base, currentState, onChange) {
+  try {
+    const d = await api('/lookup/' + encodeURIComponent(expId) + '?owner=' + S.owner);
+    const g = d.game; g._expansion = true;
+    openExpansionDetail(g, { base, currentState, onChange, keepOpen: true });
+  } catch (e) { toast('Error: ' + e.message); }
+}
+
+// Ficha de una EXPANSIÓN: rotulada "Expansión de <madre>", sin control own/wish propio; la única
+// alta es colgarla del juego madre (si lo tenés/deseás). `opts`:
+//   base         juego madre ya conocido (viene del panel; si no, se deduce de g.expands)
+//   currentState estado actual de la expa para marcar el botón
+//   onChange     callback(state) tras marcar (refresca el panel de origen)
+//   keepOpen     no cerrar tras marcar (para seguir editando desde la ficha)
+function openExpansionDetail(g, opts = {}) {
+  let mother;
+  if (opts.base) mother = { id: String(opts.base.objectid), name: opts.base.es_name && opts.base.es_name !== opts.base.name ? opts.base.es_name : opts.base.name };
+  else {
+    const mothers = g.expands || [];
+    mother = mothers.find(m => S.games.some(x => x.objectid === String(m.id) && (x.own || x.wishlist))) || mothers[0] || null;
+  }
+  const canAdd = !!(mother && (opts.base || S.games.some(x => x.objectid === String(mother.id) && (x.own || x.wishlist))));
+  const inner = node(`<div>
+    <div class="detail-hero">
+      <div class="detail-side">
+        <div class="cover"><img src="${esc(safeImg(g.image))}" alt=""></div>
+        <div style="margin-top:auto;padding-top:6px"><a href="${esc(safeImg(g.href) || '#')}" target="_blank" rel="noopener">Ver en BoardGameGeek ↗</a></div>
+      </div>
+      <div>
+        <div class="exp-badge">📦 Expansión${mother ? ' de <b>' + esc(mother.name) + '</b>' : ''}</div>
+        <div class="detail-title">${esc(g.name)}</div>
+        <div class="detail-sub">${esc(g.yearpublished || '')}</div>
+        <div class="detail-desc" id="detailDesc">${esc(g.short_description || '')}</div>
+        <div class="exp-actions"></div>
+      </div>
+    </div>
+  </div>`);
+  const actions = inner.querySelector('.exp-actions');
+  const paint = (state) => {
+    if (!mother) { actions.innerHTML = `<p style="color:var(--ink-dim);font-size:13.5px">No pude identificar el juego base de esta expansión.</p>`; return; }
+    if (!canAdd) { actions.innerHTML = `<p style="color:var(--ink-dim);font-size:13.5px">Para sumar esta expansión, agregá primero <b>${esc(mother.name)}</b> a tu colección o wishlist.</p>`; return; }
+    actions.innerHTML = `<div class="section-h">Agregar a ${esc(mother.name)}</div>
+      <div class="seg"><button data-s="own" class="${state === 'own' ? 'on' : ''}">📦 La tengo</button><button data-s="wish" class="${state === 'wish' ? 'on' : ''}">⭐ La quiero</button></div>`;
+    actions.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', async () => {
+      if (!ensureUnlocked()) return;
+      const s = b.dataset.s;
+      try {
+        await api(`/games/${mother.id}/expansions?owner=${S.owner}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exp_oid: g.objectid, name: g.name, state: s,
+            short_description: g.short_description || '' })
+        });
+        // reflejar en la colección en memoria (buscador + ficha del madre)
+        const gm = S.games.find(x => x.objectid === String(mother.id));
+        if (gm) { gm.expansions = (gm.expansions || []).filter(e => e.exp_oid !== g.objectid);
+                  gm.expansions.push({ exp_oid: g.objectid, name: g.name, state: s }); }
+        opts.onChange && opts.onChange(s);
+        toast(`${s === 'own' ? 'La tenés' : 'La querés'} · ${g.name}`);
+        if (opts.keepOpen) paint(s); else ov.remove();
+      } catch (e) { toast('Error: ' + e.message); }
+    }));
+  };
+  paint(opts.currentState || null);
+  const ov = overlay(inner);
+  setupDescription(inner, g);
 }
 
 function _words(t, n) { const w = (t || '').split(/\s+/); return w.length <= n ? t : w.slice(0, n).join(' ') + '…'; }
@@ -550,6 +1061,8 @@ async function setupDescription(inner, g) {
 }
 
 function stateControls(g) {
+  // modo seguro cerrado: no se muestran los controles de estado, solo un aviso
+  if (mutationsLocked()) return node(`<div class="locked-note"><span>🔒</span> Modo seguro activo. Tocá el candado de arriba para editar el estado del juego.</div>`);
   const box = node(`<div style="display:flex;flex-direction:column;gap:12px;width:100%">
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
       <div class="seg">
@@ -568,6 +1081,17 @@ function stateControls(g) {
       const upd = await api(`/games/${g.objectid}/state?owner=${S.owner}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch)
       });
+      if (upd.removed) {
+        // era no-preseed y quedó huérfano al desmarcarlo -> se fue del catálogo (ítem 7)
+        S.games = S.games.filter(x => x.objectid !== g.objectid);
+        BGGV.games = BGGV.games.filter(x => x.objectid !== g.objectid);
+        const cardEl = document.querySelector(`.card[data-oid="${g.objectid}"] .statebadge`);
+        if (cardEl) cardEl.remove();
+        g.own = 0; g.wishlist = 0; g.status = 'none';
+        toast('Sacado de tu ludoteca');
+        await loadOwners();
+        return;
+      }
       Object.assign(g, upd);
       // reflejar el nuevo estado en las listas en memoria
       const i = S.games.findIndex(x => x.objectid === g.objectid);
@@ -589,9 +1113,31 @@ function stateControls(g) {
   }
   box.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', async () => {
     const s = b.dataset.s;
-    // "Ninguno" saca el juego de tu biblioteca/wishlist (no borra los datos, es reversible)
-    if (s === 'none' && (g.own || g.wishlist)) {
-      if (!confirm(`¿Sacar "${g.name}" de tu ludoteca?\n\nSale de tu biblioteca y wishlist. No se borra: podés volver a agregarlo cuando quieras.`)) return;
+    // juego en PREVIEW (ítem 8): traído de BGG para mostrar la ficha, todavía NO está en la base.
+    // "Ninguno" no guarda nada (si cerrás así, no queda huérfano); own/wish lo persiste con /add.
+    if (g._preview) {
+      box.querySelectorAll('.seg button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+      box.querySelector('.prio').style.display = s === 'wishlist' ? 'flex' : 'none';
+      if (s === 'none') return;
+      try {
+        const g2 = await api('/games/add?owner=' + S.owner, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ objectid: g.objectid, status: s })
+        });
+        delete g._preview; Object.assign(g, g2);
+        const i = S.games.findIndex(x => x.objectid === g.objectid);
+        if (i >= 0) Object.assign(S.games[i], g2); else S.games.push(g2);
+        toast(`Agregado: ${g2.name}`);
+        await loadOwners();
+        if (S.view === 'library' || S.view === 'wishlist') render();
+      } catch (e) { toast('Error: ' + e.message); }
+      return;
+    }
+    // "Ninguno": si el juego es top del catálogo (preseed) sale sin más y queda en la base.
+    // Si NO es preseed, quedaría huérfano y se borra de la base -> confirmamos primero (ítem 7).
+    if (s === 'none' && (g.own || g.wishlist) && !g.is_top) {
+      const ok = await askConfirm(`¿Sacar "${g.name}" de tu ludoteca?\n\nNo está en el top del catálogo: si ningún otro perfil lo tiene, se borra de la base y para recuperarlo vas a tener que buscarlo de nuevo.`);
+      if (!ok) return;
     }
     box.querySelectorAll('.seg button').forEach(x => x.classList.remove('on')); b.classList.add('on');
     const patch = { own: s === 'own' ? 1 : 0, wishlist: s === 'wishlist' ? 1 : 0 };
@@ -709,27 +1255,27 @@ async function renderPanel(m) {
 /* ================= ADVISOR ================= */
 const OCCASIONS = {
   couple: { ic: '🍷', t: 'Noche de pareja', d: 'Para dos', preset: { players: 2, vibe: 'medium', coop: 'any' } },
-  family: { ic: '👨‍👩‍👧', t: 'Familia con chicos', d: 'Con los más chicos', preset: { min_age: 8, vibe: 'light', language_ok: true } },
+  family: { ic: '👨‍👩‍👧', t: 'Familia con chicos', d: 'Con los más chicos', preset: { min_age: 8, vibe: 'light', language_ok: 'light' } },
   party: { ic: '🎉', t: 'Fiesta', d: 'Mucha gente', preset: { players: 6, vibe: 'light', time: 'short', theme: 'fiesta' } },
   friends: { ic: '🍻', t: 'Con amigos', d: 'Junta informal', preset: { players: 4, vibe: 'medium' } },
-  elders: { ic: '👵', t: 'Gente grande', d: 'No jugones', preset: { vibe: 'light', language_ok: true, experience: 'new' } },
+  elders: { ic: '👵', t: 'Gente grande', d: 'No jugones', preset: { vibe: 'light', language_ok: 'light', experience: 'new' } },
   serious: { ic: '🧠', t: 'Algo en serio', d: 'Con ganas de pensar', preset: { vibe: 'heavy', time: 'long', experience: 'gamers' } },
-  kidadult: { ic: '🧒', t: 'Grandes y chicos', d: 'Un adulto con los más chicos', preset: { players: 2, min_age: 6, vibe: 'light', language_ok: true } },
-  newbies: { ic: '🌱', t: 'Recién empiezan', d: 'Nunca jugaron / no jugones', preset: { vibe: 'light', time: 'short', experience: 'new', language_ok: true } },
+  kidadult: { ic: '🧒', t: 'Grandes y chicos', d: 'Un adulto con chicos', preset: { players: 2, min_age: 6, vibe: 'light', language_ok: 'light' } },
+  newbies: { ic: '🌱', t: 'Recién empiezan', d: 'Nunca jugaron / no jugones', preset: { vibe: 'light', time: 'short', experience: 'new', language_ok: 'light' } },
 };
 const PLAY_Q = [
   { k: 'players', type: 'step', q: '¿Cuántos van a jugar?', min: 1, max: 10 },
   { k: 'min_age', type: 'opt', q: 'El más chico, ¿qué edad?', opts: [['sin', 'Sin chicos', 99], ['6', '~6', 6], ['8', '~8', 8], ['10', '~10', 10], ['12', '12+', 12]] },
   { k: 'time', type: 'opt', q: '¿Cuánto rato tienen?', opts: [['short', 'Un rato (~30′)', 'short'], ['hour', 'Una hora', 'hour'], ['long', 'La tarde entera', 'long'], ['any', 'No importa', 'any']] },
-  { k: 'vibe', type: 'opt', q: '¿Con qué ganas vienen?', opts: [['light', '😄 Reírse y charlar', 'light'], ['medium', '🎯 Enganchar sin quemarse', 'medium'], ['heavy', '🧠 Pensar en serio', 'heavy']] },
+  { k: 'vibe', type: 'opt', multi: true, q: '¿Con qué ganas vienen? (podés elegir varias)', opts: [['light', '😄 Reírse y charlar', 'light'], ['medium', '🎯 Enganchar sin quemarse', 'medium'], ['heavy', '🧠 Pensar en serio', 'heavy']] },
   { k: 'coop', type: 'opt', q: '¿Compiten o se unen?', opts: [['comp', '⚔ Competir', 'competitive'], ['coop', '🤝 Unirse contra el juego', 'coop'], ['any', 'Da igual', 'any']] },
   { k: 'experience', type: 'opt', q: '¿Cuánta calle tienen?', opts: [['new', 'Todos nuevos', 'new'], ['some', 'Alguno con experiencia', 'some'], ['gamers', 'Grupo jugón', 'gamers']] },
-  { k: 'language_ok', type: 'opt', q: '¿Importa el idioma / texto?', opts: [['y', '🇪🇸 Mejor poco texto', true], ['n', 'No importa', false]] },
+  { k: 'language_ok', type: 'opt', q: '¿Importa el idioma / texto?', opts: [['none', 'Sin texto', 'none'], ['light', 'Mejor poco texto', 'light'], ['any', 'No importa', 'any']] },
 ];
 const BUY_Q = [
   { k: 'audience', type: 'opt', q: '¿Para quién es principalmente?', opts: [['group', 'Mi grupo habitual', 'group'], ['family', 'Familia con chicos', 'family'], ['couple', 'Para dos', 'couple'], ['party', 'Fiestas', 'party'], ['gift', 'Un regalo', 'gift']] },
   { k: 'usual_players', type: 'step', q: '¿Con cuánta gente jugás normalmente?', min: 1, max: 10 },
-  { k: 'want_more', type: 'opt', q: '¿Qué te gustaría sumar?', opts: [['s', '♟ Más estrategia', 'Strategy Games'], ['p', '🎉 Más party', 'Party Games'], ['f', '👨‍👩‍👧 Más familiar', 'Family Games'], ['t', '🐉 Más temático', 'Thematic Games'], ['c', '🤝 Cooperativos', 'coop'], ['a', '🔷 Abstractos', 'Abstract Games']] },
+  { k: 'want_more', type: 'opt', multi: true, q: '¿Qué te gustaría sumar? (podés elegir varias)', opts: [['s', '♟ Más estrategia', 'Strategy Games'], ['p', '🎉 Más party', 'Party Games'], ['f', '👨‍👩‍👧 Más familiar', 'Family Games'], ['t', '🐉 Más temático', 'Thematic Games'], ['c', '🤝 Cooperativos', 'coop'], ['a', '🔷 Abstractos', 'Abstract Games']] },
   { k: 'vibe', type: 'opt', q: '¿Qué complejidad buscás?', opts: [['light', 'Livianos que salgan siempre', 'light'], ['medium', 'Medios', 'medium'], ['heavy', 'El juegazo de la tarde', 'heavy']] },
   { k: 'safe_or_niche', type: 'opt', q: '¿Gemas seguras o nicho?', opts: [['safe', '💎 Gemas seguras', 'safe'], ['niche', '🔍 Descubrir nicho', 'niche']] },
 ];
@@ -814,12 +1360,22 @@ function renderQ(q) {
     wrap.append(s);
   } else {
     const opts = node('<div class="opts"></div>');
+    const multi = !!q.multi;
+    if (multi && !Array.isArray(ADV.answers[q.k]))    // normaliza escalar de preset -> lista
+      ADV.answers[q.k] = ADV.answers[q.k] == null ? [] : [ADV.answers[q.k]];
     q.opts.forEach(([id, label, val]) => {
-      const on = JSON.stringify(ADV.answers[q.k]) === JSON.stringify(val);
+      const on = multi ? ADV.answers[q.k].includes(val)
+                       : JSON.stringify(ADV.answers[q.k]) === JSON.stringify(val);
       const o = node(`<button class="opt ${on ? 'on' : ''}">${label}</button>`);
       o.addEventListener('click', () => {
-        ADV.answers[q.k] = val;
-        opts.querySelectorAll('.opt').forEach(x => x.classList.remove('on')); o.classList.add('on');
+        if (multi) {
+          const arr = ADV.answers[q.k], i = arr.indexOf(val);
+          if (i >= 0) arr.splice(i, 1); else arr.push(val);
+          o.classList.toggle('on');
+        } else {
+          ADV.answers[q.k] = val;
+          opts.querySelectorAll('.opt').forEach(x => x.classList.remove('on')); o.classList.add('on');
+        }
       });
       opts.append(o);
     });
@@ -839,7 +1395,7 @@ function engineSwitch() {
     </div>
     <span style="color:var(--ink-dim);font-size:12.5px" id="engHint"></span>
     <div class="freetext ${ADV.engine === 'agent' ? '' : 'disabled'}" >
-      <textarea id="advFree" placeholder="Contale algo más en tus palabras (opcional, solo con el agente)… ej: 'somos 3 adultos y mi vieja que se aburre rápido'">${esc(ADV.freetext)}</textarea>
+      <textarea id="advFree" placeholder="Contame algo más con tus palabras: preferencias del grupo, mecánicas, juegos similares que les gusten, etc.… ej: 'Somos 3 adultos y mi vieja se aburre rápido, solemos jugar juegos con dados'">${esc(ADV.freetext)}</textarea>
     </div>
   </div>`);
   const hint = box.querySelector('#engHint');
@@ -1017,49 +1573,56 @@ function renderResults(out) {
   }
 }
 
-/* ================= AGREGAR juego ================= */
+/* ================= AGREGAR juego (ítem 8: local-first) ================= */
+// id de BGG desde un id suelto o una URL
+function bggId(s) {
+  s = String(s || '').trim();
+  const m = s.match(/boardgame\/(\d+)/);
+  return m ? m[1] : (s.match(/\d{2,}/) || [s])[0];
+}
 function openAdd() {
   const inner = node(`<div class="sheet-body">
     <h2 style="margin-bottom:4px">Agregar juego</h2>
-    <p style="color:var(--ink-dim);margin:0 0 16px;font-size:13.5px">Buscá por nombre, o pegá el ID / URL de BoardGameGeek.</p>
+    <p style="color:var(--ink-dim);margin:0 0 16px;font-size:13.5px">Buscá por nombre, o pegá el ID / URL de BoardGameGeek. Tocá un resultado para ver su ficha y sumarlo.</p>
     <div class="field"><input id="addQ" placeholder="Ej: Wingspan, o 266192, o el link de BGG…" autofocus></div>
-    <div style="display:flex;gap:8px;margin-bottom:6px">
-      <button class="btn primary" id="addSearch">Buscar</button>
-      <div class="seg" id="addStatus"><button data-s="own">📦 Lo tengo</button><button data-s="wishlist" class="on">⭐ Lo quiero</button></div>
-    </div>
+    <div style="margin-bottom:6px"><button class="btn primary" id="addSearch">Buscar</button></div>
     <div class="search-results" id="addResults"></div>
   </div>`);
-  let status = 'wishlist';
-  inner.querySelectorAll('#addStatus button').forEach(b => b.addEventListener('click', () => {
-    inner.querySelectorAll('#addStatus button').forEach(x => x.classList.remove('on')); b.classList.add('on'); status = b.dataset.s;
-  }));
   const q = inner.querySelector('#addQ'); const results = inner.querySelector('#addResults');
   async function doSearch() {
     const val = q.value.trim(); if (!val) return;
-    // si parece id/url, agregar directo
-    if (/^\d+$/.test(val) || /boardgamegeek\.com/.test(val)) { return addDirect(val); }
+    // id o URL → directo a la ficha (lookup); si no, búsqueda por nombre
+    if (/^\d+$/.test(val) || /boardgamegeek\.com/.test(val)) { return openLookup(bggId(val)); }
     results.innerHTML = '<div class="spinner"></div>';
     try {
       const d = await api('/search?q=' + encodeURIComponent(val));
       results.innerHTML = '';
       if (!d.results.length) { results.innerHTML = '<p style="color:var(--ink-dim)">Sin resultados.</p>'; return; }
       d.results.forEach(r => {
-        const el = node(`<div class="sr"><img src="${esc(safeImg(r.thumb))}" alt=""><div><div class="n">${esc(r.name)}</div><div class="y">${esc(r.yearpublished || '')} · id ${esc(r.objectid)}</div></div></div>`);
-        el.addEventListener('click', () => addDirect(r.objectid));
+        const thumb = safeImg(r.thumb);   // solo los locales traen imagen; el resto, placeholder
+        const el = node(`<div class="sr">
+          <div class="sr-thumb ${thumb ? '' : 'ph'}"${thumb ? ` style="background-image:url('${esc(thumb)}')"` : ''}>${thumb ? '' : '🎲'}</div>
+          <div><div class="n">${esc(r.name)}</div><div class="y">${esc(r.yearpublished || '')}${r.local ? ' · ya en tu base' : ''} · id ${esc(r.objectid)}</div></div>
+        </div>`);
+        el.addEventListener('click', () => openLookup(r.objectid));
         results.append(el);
       });
     } catch (e) { results.innerHTML = `<p style="color:var(--danger)">Error: ${esc(e.message)}</p>`; }
   }
-  async function addDirect(idOrUrl) {
-    results.innerHTML = '<div class="spinner"></div>';
+  // abre la ficha del juego: local si ya está, o traído de BGG sin persistir (preview) si no.
+  // Recién se guarda si el usuario marca "Lo tengo/Lo quiero" en la ficha (stateControls).
+  async function openLookup(oid) {
+    // La búsqueda queda ABIERTA detrás: la ficha se abre encima (otro overlay). Al cerrar la ficha
+    // volvés a los resultados sin re-buscar; para salir, cerrás la ficha y después la búsqueda. Útil
+    // para navegar entre varios resultados. NO se pisa la lista con un spinner.
+    toast('Abriendo ficha…');
     try {
-      const g = await api('/games/add?owner=' + S.owner, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: idOrUrl, status })
-      });
-      await loadGames(); await loadOwners();
-      ov.remove(); toast(`Agregado: ${g.name}`); render(); openDetail(g);
-    } catch (e) { results.innerHTML = `<p style="color:var(--danger)">Error: ${esc(e.message)}</p>`; }
+      const d = await api('/lookup/' + encodeURIComponent(oid) + '?owner=' + S.owner);
+      const g = d.game;
+      if (d.is_expansion) { g._expansion = true; openExpansionDetail(g); return; }
+      if (!d.saved) g._preview = true;
+      openDetail(g);
+    } catch (e) { toast('Error: ' + e.message); }
   }
   inner.querySelector('#addSearch').addEventListener('click', doSearch);
   q.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
@@ -1076,7 +1639,7 @@ function openData(tab = 'perfiles') {
       <button data-t="importar">📥 Importar</button>
       <button data-t="backup">💾 Backup</button>
       <button data-t="actualizar">🔄 Actualizar</button>
-      <button data-t="config">⚙ Advisor</button>
+      <button data-t="config">⚙ Configurar</button>
     </div>
 
     <section data-p="perfiles" class="tab-pane">
@@ -1128,8 +1691,8 @@ function openData(tab = 'perfiles') {
     </section>
 
     <section data-p="actualizar" class="tab-pane" hidden>
-      <p class="tab-hint"><b>Actualizar todo</b> hace el mantenimiento completo <b>por diff</b> (rápido): recarga el catálogo top-5000 desde el preseed (local, instantáneo), re-baja de BGG <b>solo tus juegos que quedaron fuera del top</b>, y quita del catálogo los que ya no tiene nadie. Es lo recomendado.</p>
-      <button class="btn primary block" id="updateAllBtn">🔄 Actualizar todo</button>
+      <p class="tab-hint"><b>Actualizar</b> baja el ranking del día de BGG (un dump liviano) y <b>reposiciona el rank y rating</b> de tu catálogo — arregla los ranks viejos, duplicados o salteados. De paso limpia huérfanos y completa los <b>nombres en español</b> pendientes (si tenés key de Gemini). Un solo paso, sin re-bajar la data de cada juego.</p>
+      <button class="btn primary block" id="updateAllBtn">🔄 Actualizar</button>
       <div id="updateAllMsg" style="margin-top:10px;font-size:13px;color:var(--ink-dim)"></div>
 
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
@@ -1142,7 +1705,16 @@ function openData(tab = 'perfiles') {
     </section>
 
     <section data-p="config" class="tab-pane" hidden>
-      <p class="tab-hint">El <b>Advisor con agente</b> usa <b>Google Gemini</b> (tiene <b>tier gratis</b>). Conseguí una API key gratis en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> y pegala acá. Sin key, el Advisor funciona igual en modo determinístico.</p>
+      <div class="section-h" style="margin-top:0">Modo seguro</div>
+      <p class="tab-hint">Un candado en la barra que bloquea los cambios — para mirar sin tocar la colección.</p>
+      <div id="safeBox"></div>
+
+      <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
+      <div class="section-h" style="margin-top:0">Apariencia</div>
+      <div class="appear-grid" id="appearGrid"></div>
+
+      <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
+      <div class="section-h" style="margin-top:0">Advisor</div>
       <div class="field">
         <label>API key de Google AI Studio <span id="cfgKeyState"></span></label>
         <input id="cfgKey" type="password" placeholder="Pegá acá tu API key">
@@ -1153,7 +1725,7 @@ function openData(tab = 'perfiles') {
         <p class="tab-hint" style="margin-top:6px">Viene con el último Flash gratis. Cambialo si Google saca uno nuevo, o por un modelo superior (Pro) si tenés suscripción paga.</p>
       </div>
       <button class="btn primary block" id="cfgSave">Guardar</button>
-      <div id="cfgMsg" style="margin-top:10px;font-size:12px;color:var(--ink-dim)">La key se guarda en el <b>llavero de credenciales</b> de tu sistema, no en texto plano (si no está disponible, cae a <code>config.json</code> local).</div>
+      <div id="cfgMsg" style="margin-top:10px;font-size:12px;color:var(--good)"></div>
     </section>
   </div>`);
 
@@ -1161,6 +1733,7 @@ function openData(tab = 'perfiles') {
   const showTab = (t) => {
     inner.querySelectorAll('#dataTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
     inner.querySelectorAll('.tab-pane').forEach(p => p.hidden = p.dataset.p !== t);
+    if (inner.parentElement) inner.parentElement.scrollTop = 0;   // alto fijo: dejá la barra de tabs a la vista
   };
   inner.querySelectorAll('#dataTabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.t)));
   showTab(tab);
@@ -1201,11 +1774,13 @@ function openData(tab = 'perfiles') {
         ${o.is_me ? '' : '<button class="btn ghost del" style="padding:6px 10px;color:var(--danger)" title="Borrar perfil">🗑</button>'}
       </div>`);
       row.querySelector('.ren').addEventListener('click', async () => {
+        if (!ensureUnlocked()) return;
         const name = prompt('Nuevo nombre:', o.name); if (!name) return;
         await api('/owners/' + o.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
         await loadOwners(); paintOwners(); toast('Renombrado');
       });
       row.querySelector('.rst').addEventListener('click', async () => {
+        if (!ensureUnlocked()) return;
         if ((o.own_count + o.wish_count) === 0) { toast('Ese perfil ya está vacío'); return; }
         if (!confirm(`¿Vaciar la colección de ${o.name}? Se borran sus ${o.own_count} juegos y ${o.wish_count} de wishlist. El perfil queda, pero vacío. No se puede deshacer.`)) return;
         const r = await api('/owners/' + o.id + '/reset', { method: 'POST' });
@@ -1216,6 +1791,7 @@ function openData(tab = 'perfiles') {
       });
       const del = row.querySelector('.del');
       if (del) del.addEventListener('click', async () => {
+        if (!ensureUnlocked()) return;
         if (!confirm(`¿Borrar el perfil de ${o.name} y su colección?`)) return;
         await api('/owners/' + o.id, { method: 'DELETE' });
         if (S.owner === o.id) S.owner = 0;
@@ -1228,6 +1804,7 @@ function openData(tab = 'perfiles') {
 
   inner.querySelector('#newOwner').addEventListener('keydown', async e => {
     if (e.key !== 'Enter' || !e.target.value.trim()) return;
+    if (!ensureUnlocked()) return;
     await api('/owners', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: e.target.value.trim() }) });
     e.target.value = ''; await loadOwners(); paintOwners(); toast('Perfil creado');
   });
@@ -1241,6 +1818,7 @@ function openData(tab = 'perfiles') {
     inner.querySelector('#impGo').disabled = !file;
   });
   inner.querySelector('#impGo').addEventListener('click', async () => {
+    if (!ensureUnlocked()) return;
     if (!file) return;
     const isNew = impProfile.value === '__new__';
     const name = isNew ? inner.querySelector('#impName').value.trim() : '';
@@ -1305,32 +1883,30 @@ function openData(tab = 'perfiles') {
     toast(`Actualizados ${done} juegos`); if (S.view === 'panel') render();
   });
 
-  // Actualizar TODO por diff: A) reseed local  B) refresh de red solo lo tenido fuera del top
-  // C) GC de huérfanos. Barato: la red solo toca tus juegos rankeados >5000 / caídos del top.
+  // Actualizar (ítem 4): un solo POST /api/update. Baja el dump de ranks del día (Range parcial),
+  // reconcilia el top (altas/rerank/bajas), pone al día por id la cola >10k de tu colección y
+  // resuelve es_name pendientes (si hay key). Un solo paso, sin re-bajar la data de cada juego.
   const updateAllBtn = inner.querySelector('#updateAllBtn'), updateAllMsg = inner.querySelector('#updateAllMsg');
   updateAllBtn.addEventListener('click', async () => {
     updateAllBtn.disabled = true; updateAllMsg.textContent = '';
+    updateAllBtn.textContent = '🔄 Actualizando rankings…';
     try {
-      updateAllBtn.textContent = '📚 Recargando catálogo…';
-      const a = await api('/reseed', { method: 'POST' });
-      updateAllBtn.textContent = '🔄 Refrescando tus juegos…';
-      let refreshed = 0, total = null;
-      for (let i = 0; i < 300; i++) {
-        const b = await api('/update/refresh?limit=20', { method: 'POST' });
-        if (total === null) total = b.refreshed + b.remaining;
-        refreshed += b.refreshed;
-        if (total) updateAllBtn.textContent = `🔄 Refrescando… ${refreshed}/${total}`;
-        if (b.remaining === 0 || b.refreshed === 0) break;
-      }
-      updateAllBtn.textContent = '🧹 Limpiando huérfanos…';
-      const c = await api('/update/gc', { method: 'POST' });
+      const r = await api('/update', { method: 'POST' });
       BGGV.owner = -1; await loadGames(); await loadOwners();
-      updateAllMsg.innerHTML = `✓ Catálogo top-5000: <b>${(a.catalog || 0).toLocaleString('es-AR')}</b> · `
-        + `tus juegos fuera del top refrescados: <b>${refreshed}</b> · huérfanos quitados: <b>${c.removed}</b>.`;
-      if (S.view === 'panel') render();
+      const es = r.es_names || {};
+      const tandas = es.tandas > 1 ? ` (en ${es.tandas} tandas)` : '';
+      const esTxt = es.no_key ? ' · nombres en español: pendientes (falta key de Gemini)'
+        : (es.resolved ? ` · nombres en español resueltos: <b>${es.resolved}</b>${tandas}` : '');
+      updateAllMsg.innerHTML = `✓ Ranking del <b>${esc(r.dump_date || '')}</b> aplicado a `
+        + `<b>${(r.ranks_applied || 0).toLocaleString('es-AR')}</b> juegos`
+        + (r.altas ? ` · nuevos en el top: <b>${r.altas}</b>` : '')
+        + (r.gc_removed ? ` · salieron del top: <b>${r.gc_removed}</b>` : '')
+        + (r.tail_refreshed ? ` · cola actualizada: <b>${r.tail_refreshed}</b>` : '')
+        + esTxt + '.';
+      if (S.view === 'panel' || S.view === 'bgg') render();
       toast('Actualización completa');
     } catch (e) { updateAllMsg.innerHTML = `<span style="color:var(--danger)">Error: ${esc(e.message)}</span>`; }
-    updateAllBtn.disabled = false; updateAllBtn.textContent = '🔄 Actualizar todo';
+    updateAllBtn.disabled = false; updateAllBtn.textContent = '🔄 Actualizar';
   });
 
   // recargar el catálogo top-5000 desde el preseed del repo (tras un git pull)
@@ -1374,7 +1950,11 @@ function openData(tab = 'perfiles') {
     } catch (e) { toast('Error: ' + e.message); }
   });
 
-  const ov = overlay(inner, 'sheet');
+  // apariencia + modo seguro (secciones nuevas del tab Configurar)
+  renderAppearanceGrid(inner.querySelector('#appearGrid'));
+  renderSafeBox(inner.querySelector('#safeBox'));
+
+  const ov = overlay(inner, 'sheet data-hub');   // alto fijo: la barra de tabs no salta al cambiar
 }
 
 /* Reconciliación de re-import (flujo 9): muestra el diff agrupado y aplica con confirmación.
@@ -1425,6 +2005,7 @@ function openReconcile(file, ownerId, pv, dataOv) {
   inner.querySelector('#rcCancel').addEventListener('click', () => ov.remove());
   inner.querySelector('#rcApply').addEventListener('click', async () => {
     if (nothing) { ov.remove(); return; }
+    if (!ensureUnlocked()) return;
     const remove = [...inner.querySelectorAll('.rmchk:checked')].map(c => c.dataset.id);
     const btn = inner.querySelector('#rcApply'); btn.disabled = true; btn.textContent = 'Aplicando…';
     const prog = inner.querySelector('#rcProg');
@@ -1473,8 +2054,23 @@ function openOnboarding() {
       <button class="onb" data-c="backup"><div class="oic">💾</div><div><b>Tengo un backup de esta app</b><span>Restaurá un CSV que descargaste antes desde acá.</span></div></button>
       <button class="onb" data-c="scratch"><div class="oic">✨</div><div><b>Empezar de cero</b><span>Buscá y agregá tus juegos uno por uno.</span></div></button>
     </div>
+    <div style="margin-top:20px;text-align:left">
+      <div class="section-h" style="margin:0 0 8px">Elegí un tema <span style="text-transform:none;font-weight:500;color:var(--ink-dim)">(lo cambiás cuando quieras)</span></div>
+      <div class="appear-grid" id="onbAppear"></div>
+    </div>
+    <div style="margin-top:16px;text-align:left">
+      <div class="section-h" style="margin:0 0 6px">Modo seguro <span style="text-transform:none;font-weight:500;color:var(--ink-dim)">(opcional)</span></div>
+      <p class="tab-hint" style="margin:0 0 8px">Un candado que bloquea los cambios — para que un chico mire sin tocar la colección. Lo activás y configurás el PIN cuando quieras.</p>
+      <div id="onbSafe"></div>
+    </div>
+    <div class="onb-key" style="margin-top:18px">💡 El <b>Advisor con IA</b> es opcional: usa una API key <b>gratis</b> de Google Gemini. Podés cargarla ahora o cuando quieras en <b>⚙ → Configurar</b>. Sin ella, la app anda completa (búsqueda, panel y advisor determinístico).
+      <div style="margin-top:8px"><button class="btn ghost sm" id="onbKey">Configurar el Advisor (opcional)</button></div>
+    </div>
     <div id="onbProg" style="margin-top:18px"></div>
   </div>`);
+  renderAppearanceGrid(inner.querySelector('#onbAppear'));
+  renderSafeBox(inner.querySelector('#onbSafe'));
+  inner.querySelector('#onbKey').addEventListener('click', () => { ov.remove(); openData('config'); });
   // estilos inline para los botones de onboarding
   inner.querySelectorAll('.onb').forEach(b => {
     b.style.cssText = 'display:flex;gap:14px;align-items:center;padding:16px;border-radius:14px;background:var(--surface);border:1px solid var(--line);transition:.15s;text-align:left';

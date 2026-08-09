@@ -5,7 +5,8 @@
       "name": "ludoteca",
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8778", "--app-dir", "server"],
-      "port": 8778
+      "port": 8778,
+      "autoPort": false
     }
   ]
 }

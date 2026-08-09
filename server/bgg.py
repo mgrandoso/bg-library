@@ -1,10 +1,13 @@
 """Acceso a la API JSON pública de BGG (api.geekdo.com / boardgamegeek.com).
 La XML API oficial requiere Bearer token; estos endpoints del frontend son públicos."""
 import json
+import logging
 import re
 import time
 import urllib.parse
 import urllib.request
+
+log = logging.getLogger("ludoteca.bgg")
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120 Safari/537.36")
@@ -14,6 +17,9 @@ SEARCH = "https://boardgamegeek.com/search/boardgame?q={q}&showcount={n}&nosessi
 
 
 def _get(url, retries=3):
+    """GET + parse JSON contra la API pública de BGG, con reintentos. Loguea cada fallo con la URL
+    y el tipo de error, y un ERROR final al agotar reintentos: si BGG cambia un endpoint/estructura
+    o el proxy corporativo corta, queda rastro claro en el log para diagnosticarlo (pedido de M.)."""
     last = None
     for attempt in range(retries):
         try:
@@ -22,7 +28,10 @@ def _get(url, retries=3):
                 return json.loads(r.read().decode("utf-8"))
         except Exception as e:  # noqa
             last = e
+            log.warning("BGG GET falló (intento %d/%d) %s -> %s: %s",
+                        attempt + 1, retries, url, type(e).__name__, e)
             time.sleep(1.0 * (attempt + 1))
+    log.error("BGG GET agotó reintentos: %s -> %s: %s", url, type(last).__name__, last)
     raise last
 
 
@@ -39,18 +48,18 @@ def parse_id(text):
 
 
 def search(q, n=8):
+    """Búsqueda de BGG: devuelve candidatos con `objectid + name + yearpublished + href`.
+    NO arma thumbnail: la API de búsqueda solo trae `rep_imageid` y la URL `camo/…` que se armaba
+    a mano necesita un hash firmado → siempre daba 404 (thumbnails rotos). La imagen la aporta la
+    base local si el juego ya está (hidratación local-first, ítem 8); si no, placeholder hasta
+    agregarlo. No inventamos URLs de imagen."""
     data = _get(SEARCH.format(q=urllib.parse.quote(q), n=n))
     out = []
     for it in data.get("items", [])[:n]:
-        img_id = it.get("rep_imageid")
-        thumb = None
-        if img_id:
-            thumb = f"https://cf.geekdo-images.com/camo/fit-in/200x150/filters:strip_icc()/pic{img_id}.jpg"
         out.append({
             "objectid": str(it.get("objectid")),
             "name": it.get("name"),
             "yearpublished": it.get("yearpublished"),
-            "thumb": thumb,
             "href": "https://boardgamegeek.com" + (it.get("href") or ""),
         })
     return out
@@ -60,12 +69,31 @@ def _names(links, key):
     return [x.get("name") for x in links.get(key, []) if x.get("name")]
 
 
+def _alt_names(gi):
+    """Nombres alternativos (otros idiomas) de un geekitem. BGG los da como [{nameid,name}] sin
+    etiqueta de idioma. TRANSITORIO: alimenta el resolver de es_name (ítem 1); NO se persiste."""
+    out = []
+    for x in gi.get("alternatenames") or []:
+        n = x.get("name") if isinstance(x, dict) else x
+        if n:
+            out.append(n)
+    return out
+
+
 def _link_objs(links, key):
     out = []
     for x in links.get(key, []):
         if x.get("name"):
             out.append({"id": str(x.get("objectid")), "name": x["name"]})
     return out
+
+
+def expansions_of(objectid):
+    """Expansiones OFICIALES de un juego según BGG (links `boardgameexpansion`): lista de
+    {id, name}. Un solo GET al geekitem (liviano). Alimenta el panel '＋' de la ficha (ítem 3);
+    NO se persiste — las expansiones viven en la tabla `expansions` solo por nombre."""
+    gi = _get(GEEKITEMS.format(id=objectid)).get("item", {})
+    return _link_objs(gi.get("links", {}), "boardgameexpansion")
 
 
 def _strip_html(html):
@@ -111,9 +139,17 @@ def fetch(objectid):
             break
 
     wp = polls.get("boardgameweight", {}) or {}
+    # expansión: subtype canónico o que expanda a algún juego base. `expands` = madre(s). Ambos
+    # TRANSITORIOS (no se persisten en games): alimentan el guard de alta y la ficha de expansión.
+    expands = _link_objs(links, "expandsboardgame")
+    is_expansion = gi.get("subtype") == "boardgameexpansion" or bool(expands)
     return {
         "objectid": str(objectid),
         "name": gi.get("name"),
+        "subtype": gi.get("subtype"),
+        "is_expansion": is_expansion,
+        "expands": expands,            # transitorio: juego(s) madre de una expansión
+        "alt_names": _alt_names(gi),   # transitorio (para el resolver de es_name); db.upsert no lo guarda
         "yearpublished": gi.get("yearpublished"),
         "href": gi.get("canonical_link"),
         "image": gi.get("imageurl") or images.get("original"),

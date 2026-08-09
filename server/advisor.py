@@ -72,6 +72,30 @@ def _lang_light(g):
     return ("no necessary" in ld) or ("easily memorized" in ld) or ("some necessary" in ld)
 
 
+def _lang_none(g):
+    """Idioma-independiente: nivel 1 de BGG ('No necessary in-game text')."""
+    return "no necessary" in (g.get("language_dependence") or "").lower()
+
+
+def _vibe_bonus(vibe, w):
+    """Complejidad segun ganas. vibe puede ser str o lista (OR entre bandas)."""
+    if not w:
+        return 0, None
+    vibes = [v for v in (vibe if isinstance(vibe, list) else [vibe]) if v in WEIGHT_BANDS]
+    if not vibes:
+        return 0, None
+    for v in vibes:                                   # cae dentro de alguna banda -> bonus pleno
+        lo, hi = WEIGHT_BANDS[v]
+        if lo <= w <= hi:
+            return 22, {"light": "liviano", "medium": "de peso medio",
+                        "heavy": "con chicha para pensar"}[v]
+    best = 0                                           # si no, bonus parcial por cercania
+    for v in vibes:
+        lo, hi = WEIGHT_BANDS[v]
+        best = max(best, max(0, 12 - min(abs(w - lo), abs(w - hi)) * 8))
+    return best, None
+
+
 def _age_min(g):
     """Edad mínima como número (usa publisher, cae a comunidad)."""
     a = g.get("minage_publisher")
@@ -116,18 +140,13 @@ def score_play(g, a):
         else:
             return -100, ["no entra con esa cantidad de jugadores"]
 
-    # 2) complejidad segun ganas
-    vibe = a.get("vibe")
+    # 2) complejidad segun ganas (acepta varias: OR entre bandas)
     w = g.get("weight") or 0
-    if vibe in WEIGHT_BANDS and w:
-        lo, hi = WEIGHT_BANDS[vibe]
-        if lo <= w <= hi:
-            score += 22
-            reasons.append({"light": "liviano", "medium": "de peso medio",
-                            "heavy": "con chicha para pensar"}[vibe])
-        else:
-            dist = min(abs(w - lo), abs(w - hi))
-            score += max(0, 12 - dist * 8)
+    dv, lbl = _vibe_bonus(a.get("vibe"), w)
+    if dv:
+        score += dv
+        if lbl:
+            reasons.append(lbl)
 
     # 3) tiempo
     t = a.get("time")
@@ -174,11 +193,16 @@ def score_play(g, a):
         if _lang_light(g):
             score += 4
 
-    # 7) idioma / texto
-    if a.get("language_ok"):
-        if _lang_light(g):
+    # 7) idioma / texto (none=sin texto / light=poco texto / any|None=no importa)
+    lang_pref = a.get("language_ok")
+    if lang_pref is True:                  # compat: booleano viejo = "poco texto"
+        lang_pref = "light"
+    if lang_pref in ("none", "light"):
+        ok = _lang_none(g) if lang_pref == "none" else _lang_light(g)
+        if ok:
             score += 7
-            reasons.append("baja dependencia del idioma")
+            reasons.append("sin texto para leer" if lang_pref == "none"
+                           else "baja dependencia del idioma")
         else:
             score -= 8
 
@@ -237,28 +261,28 @@ def score_buy(g, a, prof):
         elif lvl == "no":
             score -= 15
 
-    # qué querés más (subdominio) cruzado con lo que ya tenés
-    want = a.get("want_more")  # ej "Strategy Games", "Party Games"...
-    if want:
-        if want in g.get("subdomains", []):
+    # qué querés más (subdominios) cruzado con lo que ya tenés — acepta lista (OR)
+    want = a.get("want_more")  # ej ["Strategy Games", "Abstract Games"], o "coop"
+    wants = want if isinstance(want, list) else ([want] if want else [])
+    for w_sub in wants:
+        if w_sub and w_sub != "coop" and w_sub in g.get("subdomains", []):
             score += 15
-            have = prof["subdomains"].get(want, 0)
+            have = prof["subdomains"].get(w_sub, 0)
             if have <= 2:
                 score += 15
-                reasons.append(f"tenés pocos de {want} y este es del palo")
+                reasons.append(f"tenés pocos de {w_sub} y este es del palo")
             else:
-                reasons.append(f"más {want}, como pediste")
+                reasons.append(f"más {w_sub}, como pediste")
 
-    # complejidad buscada
+    # complejidad buscada (tolera lista aunque en compra es selección única)
     vibe = a.get("vibe")
     w = g.get("weight") or 0
-    if vibe in WEIGHT_BANDS and w:
-        lo, hi = WEIGHT_BANDS[vibe]
-        if lo <= w <= hi:
-            score += 15
+    vibes = vibe if isinstance(vibe, list) else [vibe]
+    if w and any(v in WEIGHT_BANDS and WEIGHT_BANDS[v][0] <= w <= WEIGHT_BANDS[v][1] for v in vibes):
+        score += 15
 
-    # coop si lo pidió
-    if a.get("want_more") == "coop" and _is_coop(g):
+    # coop si lo pidió (puede venir dentro de la lista de "sumar")
+    if "coop" in wants and _is_coop(g):
         score += 20
         if prof["coop"] <= 1:
             score += 15
@@ -315,7 +339,13 @@ def recommend(mode, answers, engine="rules", limit=4, owner_id=None):
     if owner_id is None:
         owner_id = db.get_me(conn)
     games = db.games_for_owner(conn, owner_id)
+    owned_exps = db.owned_expansions_for(conn, owner_id)   # expas jugables por base (modo play)
     conn.close()
+    # adjuntar a cada juego sus expansiones que el perfil TIENE (el prompt de play las usa)
+    for g in games:
+        exps = owned_exps.get(g["objectid"])
+        if exps:
+            g["expansions"] = exps
     if mode == "buy":
         pool = [g for g in games if g.get("wishlist")]
         owned = [g for g in games if g.get("own")]
@@ -466,8 +496,14 @@ def resolve_mentions(conn, text, collection, limit=4):
     if not _norm(text):
         return []
     by_id = {g["objectid"]: g for g in collection}
-    names = [(r["objectid"], r["name"]) for r in
-             conn.execute("SELECT objectid, name FROM games").fetchall()]
+    # matchea contra el nombre inglés Y el español (es_name), así "la resistencia" encuentra
+    # The Resistance una vez resuelto. Un mismo oid puede entrar por los dos nombres; _match_names
+    # deduplica por got_ids.
+    names = []
+    for r in conn.execute("SELECT objectid, name, es_name FROM games").fetchall():
+        names.append((r["objectid"], r["name"]))
+        if r["es_name"] and r["es_name"] != r["name"]:
+            names.append((r["objectid"], r["es_name"]))
     ids = _match_names(text, names, set(), limit)   # orden: nombre más largo primero
     # los que no son de tu colección: traer datos reales de la base en un solo query
     fetch_ids = [oid for oid in ids if oid not in by_id]
@@ -483,20 +519,43 @@ def resolve_mentions(conn, text, collection, limit=4):
 
 def _build_prompt(mode, answers, shortlist, mentioned=None):
     games_txt = []
+    any_exps = False
     for s, why, g in shortlist:
         # preferimos la descripción larga: el LLM aprovecha el contexto temático
         desc = (g.get("description") or g.get("short_description") or "").strip().replace("\n", " ")
         if len(desc) > 400:
             desc = desc[:400] + "…"
-        games_txt.append(
+        line = (
             f"- id={g['objectid']} | {g['name']} ({g.get('yearpublished')}) | "
             f"tipo={','.join(g.get('subdomains') or [])} | complejidad={round(g.get('weight') or 0,1)}/5 | "
             f"jugadores {g.get('minplayers')}-{g.get('maxplayers')} (mejor: {g.get('best_players')}) | "
             f"~{g.get('maxplaytime')}min | edad {g.get('minage_publisher')}+ | "
             f"dependencia_idioma={LANG_LEVEL.get(g.get('language_dependence'), 'media')} | "
-            f"mecánicas={','.join((g.get('mechanics') or [])[:4])}"
+            f"mecánicas={','.join((g.get('mechanics') or [])[:6])}"
             + (f" | de qué va: {desc}" if desc else "")
         )
+        # modo play: adjuntar las expansiones que el usuario TIENE de ese juego (nombre + short desc),
+        # para que el agente decida si conviene sumarlas a la ocasión (o no).
+        exps = g.get("expansions") or []
+        if mode == "play" and exps:
+            any_exps = True
+            parts = []
+            for e in exps[:6]:
+                d = (e.get("short_description") or "").strip().replace("\n", " ")
+                if len(d) > 160:
+                    d = d[:160] + "…"
+                parts.append(e["name"] + (f" ({d})" if d else ""))
+            line += " | EXPANSIONES QUE POSEE: " + "; ".join(parts)
+        games_txt.append(line)
+    # instrucción sobre expansiones (solo si hay alguna entre los candidatos)
+    exp_instr = ""
+    if mode == "play" and any_exps:
+        exp_instr = (
+            "\n\nAlgunos candidatos traen 'EXPANSIONES QUE POSEE' (las que el usuario YA TIENE para "
+            "ese juego). Tenelas en cuenta para ESTA ocasión: si sumar una mejora la experiencia, "
+            "sugerila en el pitch y explicá en una frase por qué; si no conviene (grupo nuevo, poco "
+            "tiempo, o agrega demasiada complejidad), recomendá jugar el juego base sin la expansión "
+            "o dejala para otra vez. No inventes expansiones que no estén listadas.")
     # juegos que el usuario nombró en su texto libre: le damos los datos reales para que no invente
     mentioned_txt = ""
     if mentioned:
@@ -512,7 +571,7 @@ def _build_prompt(mode, answers, shortlist, mentioned=None):
             lines.append(
                 f"- {g['name']}: tipo={','.join(g.get('subdomains') or [])} | "
                 f"complejidad={round(g.get('weight') or 0,1)}/5 | "
-                f"mecánicas={','.join((g.get('mechanics') or [])[:4])}" + flag)
+                f"mecánicas={','.join(g.get('mechanics') or [])}" + flag)
         mentioned_txt = (
             "\n\nDetección heurística (puede equivocarse): por el texto del usuario, estos juegos "
             "PODRÍAN ser referencias que hizo. Te adjunto sus datos reales solo como contexto, por "
@@ -542,7 +601,7 @@ Respuestas del usuario (traducidas de preguntas de la vida real):
 {json.dumps(answers, ensure_ascii=False, indent=2)}{mentioned_txt}
 
 Candidatos (prefiltrados por relevancia; evaluá TODOS y elegí los mejores):
-{chr(10).join(games_txt)}
+{chr(10).join(games_txt)}{exp_instr}
 
 Analizá los {len(shortlist)} candidatos y elegí los 5 mejores para esta situación.
 IMPORTANTE: el ORDEN en que los devolvés ES tu ranking de recomendación. Poné PRIMERO el que
@@ -670,3 +729,67 @@ def _call_gemini(prompt, key, model="gemini-3.6-flash"):
 
     parts = data["candidates"][0].get("content", {}).get("parts", [])
     return "".join(p.get("text", "") for p in parts if "text" in p)
+
+
+# ---- resolver de nombres en español (es_name, ítem 1) ----
+# BGG trae `alternatenames` sin etiqueta de idioma; una heurística mislabela FR/PT/NL ~1/3 de las
+# veces, así que lo resuelve un LLM. La llamada es INYECTABLE (`call_llm(prompt)->str`): en runtime
+# es Gemini, en build-time Claude. Batcheado (una llamada por chunk), nunca una por juego.
+
+def _build_esname_prompt(items):
+    """`items`: lista de {id, name, alt:[nombres alternativos]}. Prompt que pide un JSON
+    {id: nombre_en_español} eligiendo SOLO de la lista (o el principal si no hay español)."""
+    lineas = []
+    for it in items:
+        alts = "; ".join(it.get("alt") or [])
+        lineas.append(f'- id={it["id"]} | principal: {it["name"]} | alternativos: {alts}')
+    return (
+        "Sos experto en juegos de mesa. Para cada juego te doy su nombre principal y una lista de "
+        "nombres alternativos en varios idiomas (sin etiqueta de idioma).\n"
+        'Devolvé SOLO un objeto JSON {"id": "nombre en español"} con una entrada por juego.\n'
+        "Regla: si entre los alternativos hay uno en ESPAÑOL (castellano), usá ese exacto. Si no "
+        "hay ninguno en español, repetí el nombre principal tal cual. No inventes ni traduzcas "
+        "vos: elegí de la lista o el principal.\n\n"
+        + "\n".join(lineas) + "\n\nJSON:"
+    )
+
+
+def _parse_esname_response(raw, items):
+    """Parseo robusto: extrae el primer objeto JSON de `raw` (tolera fences/texto alrededor) y
+    devuelve {id: es_name} con UNA entrada por item; los que falten o vengan vacíos caen al nombre
+    principal. Nunca lanza: ante basura/JSON inválido cae todo al principal."""
+    try:
+        m = re.search(r"\{.*\}", raw or "", re.S)
+        data = json.loads(m.group(0)) if m else {}
+    except (json.JSONDecodeError, AttributeError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    out = {}
+    for it in items:
+        val = data.get(str(it["id"]))
+        out[str(it["id"])] = (val.strip() if isinstance(val, str) else "") or it["name"]
+    return out
+
+
+def resolve_es_names(items, call_llm, chunk_size=80):
+    """Resuelve el nombre en español de una lista de juegos en llamadas batcheadas al LLM (una por
+    chunk de `chunk_size`, nunca una por juego). Siempre devuelve un es_name por item (el castellano
+    si aparece entre los alternativos, o el nombre principal). Robusto ante fallos del LLM."""
+    out = {}
+    for i in range(0, len(items), chunk_size):
+        chunk = items[i:i + chunk_size]
+        out.update(_parse_esname_response(call_llm(_build_esname_prompt(chunk)), chunk))
+    return out
+
+
+def gemini_caller():
+    """`call_llm(prompt)->str` que usa la key de Gemini del keychain, o None si no hay key. Para
+    inyectar en `resolve_es_names`/`resolve_missing_es_names` en runtime (build-time usa Claude)."""
+    import appconfig
+    cfg = appconfig.load()
+    key = (cfg.get("gemini_api_key") or "").strip()
+    if not key:
+        return None
+    model = cfg.get("gemini_model") or "gemini-3.6-flash"
+    return lambda prompt: _call_gemini(prompt, key, model)

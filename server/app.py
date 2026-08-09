@@ -4,7 +4,7 @@ import io
 import os
 import time
 
-from fastapi import FastAPI, Body, UploadFile, File, Form, Query
+from fastapi import FastAPI, Body, UploadFile, File, Form, Query, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -33,6 +33,12 @@ async def no_cache_assets(request, call_next):
     if path == "/" or path.endswith((".js", ".css", ".html")):
         resp.headers["Cache-Control"] = "no-store, must-revalidate"
     return resp
+
+
+def _is_top(rank_overall):
+    """True si el rank lo pone en el top canónico (rank<=TOP_N). El front usa `is_top` para decidir
+    si al desmarcar a 'Ninguno' pide confirmación (fuera del top => se borra de la base)."""
+    return rank_overall is not None and rank_overall <= db.TOP_N
 
 
 def _me():
@@ -84,7 +90,7 @@ def reset_owner(oid: int):
     n = conn.execute("SELECT COUNT(*) c FROM holdings WHERE owner_id=?", (oid,)).fetchone()["c"]
     conn.execute("DELETE FROM holdings WHERE owner_id=?", (oid,))
     conn.commit()
-    orphans = db.gc_orphans(conn, seedmod.preseed_id_set())
+    orphans = db.gc_orphans(conn, db.top_ids(conn))
     conn.commit()
     conn.close()
     return {"ok": True, "cleared": n, "gc": len(orphans)}
@@ -112,10 +118,15 @@ def list_games(owner: int = 0):
     browse del top vive en /api/bgg (paginado). Mantiene el payload liviano."""
     conn = db.connect()
     owner = owner or db.get_me(conn)
-    games = [g for g in db.games_for_owner(conn, owner) if g.get("own") or g.get("wishlist")]
+    games = [g for g in db.games_for_owner(conn, owner, top_n=db.TOP_N)
+             if g.get("own") or g.get("wishlist")]
+    # expansiones del perfil por juego (ítem 3): pintan la sección de la ficha y habilitan el
+    # buscador por nombre de expansión (Biblioteca matchea expas 📦, Wishlist expas ⭐).
+    exps = db.expansions_for(conn, owner)
     conn.close()
     for g in games:
         g.pop("description", None)   # descripción larga on-demand en la ficha
+        g["expansions"] = exps.get(g["objectid"], [])
     return {"owner": owner, "games": games}
 
 
@@ -132,11 +143,46 @@ BGG_SORT = {
 BGG_WEIGHT = {"light": (0.01, 2.1), "mid": (2.1, 2.7), "heavy": (2.7, 99.0)}
 # duración efectiva de un juego (maxplaytime, cae a minplaytime, 0 si nada)
 _PLAYTIME = "COALESCE(NULLIF(g.maxplaytime,0), NULLIF(g.minplaytime,0), 0)"
+# Grupo "Mecánicas" (ítem 9): eje ortogonal a los 8 subdominios. OR dentro del grupo, AND con el
+# resto de los filtros. Cooperativo se detecta igual que advisor._is_coop (mechanics O categories con
+# "Cooperative"/"Co-operative"); el resto matchea el string canónico exacto dentro del JSON mechanics.
+_COOP_WHERE = ("(g.mechanics LIKE '%Cooperative%' OR g.categories LIKE '%Cooperative%' "
+               "OR g.mechanics LIKE '%Co-operative%' OR g.categories LIKE '%Co-operative%')")
+
+
+def _mech_where(mechs):
+    """Cláusula OR para el grupo de mecánicas + sus params ligados. `mechs`: strings canónicos de
+    BGG. Coop es especial (mira mechanics+categories); el resto matchea `mechanics LIKE '%"nombre"%'`
+    (el JSON guarda los nombres entrecomillados). Devuelve ('(...)', [params])."""
+    clauses, params = [], []
+    for m in mechs:
+        if m == "Cooperative Game":
+            clauses.append(_COOP_WHERE)
+        else:
+            clauses.append("g.mechanics LIKE ?")
+            params.append(f'%"{m}"%')
+    return "(" + " OR ".join(clauses) + ")", params
+
+
+def _members_expr(col):
+    """Normaliza un array JSON ('[2, 3, 4]') a ',2,3,4,' para probar pertenencia con LIKE
+    (sin importar los espacios que mete json.dumps)."""
+    return f"(',' || replace(replace(replace(COALESCE({col},''),' ',''),'[',''),']','') || ',')"
+
+
+def _fit_case(n):
+    """Expresión SQL con el tier de ajuste a N jugadores: 0=ideal (best), 1=va bien (recommended),
+    2=se banca (dentro de min/max), 3=no entra. `n` es un entero ya tipado por el query → seguro
+    de interpolar. Espeja playerFit del front (ítem 9)."""
+    best = f"{_members_expr('g.best_players')} LIKE '%,{n},%'"
+    rec = f"{_members_expr('g.recommended_players')} LIKE '%,{n},%'"
+    return (f"CASE WHEN {best} THEN 0 WHEN {rec} THEN 1 "
+            f"WHEN g.minplayers <= {n} AND g.maxplayers >= {n} THEN 2 ELSE 3 END")
 
 
 @app.get("/api/bgg")
 def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = "",
-               types: str = "", players: int = 0,
+               types: str = "", mechanics: str = "", players: int = 0,
                time_f: str = Query("", alias="time"), weight: str = "",
                sort: str = "rank", direction: int = Query(1, alias="dir")):
     """Browse del top de BGG (por rank) con tu estado (own/wishlist) por juego.
@@ -146,13 +192,19 @@ def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = "",
     where = ["g.rank_overall IS NOT NULL", "g.rank_overall > 0"]
     params = []
     if q.strip():
-        where.append("g.name LIKE ? COLLATE NOCASE")
-        params.append(f"%{q.strip()}%")
+        # matchea nombre inglés o español (ítem 1): "la resistencia" encuentra The Resistance
+        where.append("(g.name LIKE ? COLLATE NOCASE OR g.es_name LIKE ? COLLATE NOCASE)")
+        params += [f"%{q.strip()}%", f"%{q.strip()}%"]
     sel_types = [t.strip() for t in types.split(",") if t.strip()]
     if sel_types:
         # subdomains se guarda como JSON: ["Strategy Games", ...]; matcheo por el nombre entrecomillado
         where.append("(" + " OR ".join("g.subdomains LIKE ?" for _ in sel_types) + ")")
         params += [f'%"{t}"%' for t in sel_types]
+    mechs = [m for m in mechanics.split("~") if m.strip()]   # '~' separa (los nombres traen comas/barras)
+    if mechs:
+        clause, mparams = _mech_where(mechs)
+        where.append(clause)
+        params += mparams
     if players:
         where.append("g.minplayers <= ? AND g.maxplayers >= ?")
         params += [players, players]
@@ -168,11 +220,15 @@ def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = "",
         params += [lo, hi]
     where_sql = " AND ".join(where)
 
-    expr, base_dir = BGG_SORT.get(sort, BGG_SORT["rank"])
-    if direction != 1:
-        base_dir = "ASC" if base_dir == "DESC" else "DESC"
-    # NULLs siempre al final, sin importar la dirección; desempate estable por rank
-    order_sql = f"({expr}) IS NULL, {expr} {base_dir}, g.rank_overall ASC"
+    if sort == "fit" and players:
+        # "Mejor para N jug." (ítem 9): ideal→va bien→se banca, desempate por rank BGG
+        order_sql = f"{_fit_case(players)} ASC, g.rank_overall ASC"
+    else:
+        expr, base_dir = BGG_SORT.get(sort, BGG_SORT["rank"])
+        if direction != 1:
+            base_dir = "ASC" if base_dir == "DESC" else "DESC"
+        # NULLs siempre al final, sin importar la dirección; desempate estable por rank
+        order_sql = f"({expr}) IS NULL, {expr} {base_dir}, g.rank_overall ASC"
 
     total = conn.execute(f"SELECT COUNT(*) c FROM games g WHERE {where_sql}", params).fetchone()["c"]
     rows = conn.execute(f"""
@@ -187,6 +243,8 @@ def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = "",
     for r in rows:
         g = db.row_to_game(r)
         g.pop("description", None)
+        rk = g.get("rank_overall")
+        g["is_top"] = rk is not None and rk <= db.TOP_N
         games.append(g)
     return {"games": games, "page": page, "per": per, "total": total,
             "has_more": (page + 1) * per < total}
@@ -226,19 +284,77 @@ def set_state(oid: str, payload: dict = Body(...), owner: int = 0):
     owner = owner or db.get_me(conn)
     db.set_holding(conn, owner, oid, patch)
     conn.commit()
-    games = {g["objectid"]: g for g in db.games_for_owner(conn, owner)}
+    # desmarcado a "Ninguno": si el juego está FUERA del top y nadie lo tiene/desea, se va del
+    # catálogo (huérfano). En el top => queda en la base. Ver ítem 7 del ciclo de vida de datos.
+    if patch.get("own") == 0 and patch.get("wishlist") == 0:
+        # las expansiones cuelgan del juego madre: si lo sacás de tu colección, se van con él
+        # (para este perfil). Sin base own/wish no se puede tener/desear su expansión (ítem 3).
+        conn.execute("DELETE FROM expansions WHERE owner_id=? AND base_oid=?", (owner, oid))
+        conn.commit()
+        if db.remove_if_orphan(conn, oid):
+            conn.commit()
+            conn.close()
+            return {"ok": True, "removed": True, "objectid": oid}
+    g = db.game_with_state(conn, owner, oid)
     conn.close()
-    return games.get(oid, {"ok": True})
+    return g or {"ok": True, "removed": True, "objectid": oid}
 
 
 # ---------------- alta / búsqueda ----------------
 
 @app.get("/api/search")
 def search_bgg(q: str):
+    """Búsqueda híbrida local-first (ítem 8): BGG hace el matching (encuentra bien, incluso lo que
+    no tenés), la base local hidrata con imagen/datos válidos los que ya están (thumbnail que carga,
+    instantáneo). Los que no están: sin thumbnail (placeholder en el front), la data completa se
+    trae recién al abrir la ficha. NO se arma ninguna URL de imagen falsa."""
     try:
-        return {"results": bgg.search(q)}
-    except Exception as e:  # noqa
+        cands = bgg.search(q, n=6)
+    except Exception as e:  # noqa — la red puede fallar; queda logueado en bgg._get
         return JSONResponse({"error": str(e)}, status_code=502)
+    ids = [c["objectid"] for c in cands]
+    local = {}
+    if ids:
+        conn = db.connect()
+        ph = ",".join("?" for _ in ids)
+        for r in conn.execute(
+                f"SELECT objectid, thumb, image FROM games WHERE objectid IN ({ph})", ids):
+            local[r["objectid"]] = r
+        conn.close()
+    for c in cands:
+        loc = local.get(c["objectid"])
+        c["local"] = loc is not None
+        c["thumb"] = (loc["thumb"] or loc["image"]) if loc else None
+    return {"results": cands}
+
+
+@app.get("/api/lookup/{oid}")
+def lookup_game(oid: str, owner: int = 0):
+    """Trae un juego para MOSTRAR su ficha (ítem 8). Si ya está en la base, devuelve el registro
+    local con tu estado (`saved=True`). Si no, lo trae de BGG SIN persistirlo (`saved=False`): la
+    ficha se muestra con "Ninguno" y recién se guarda si marcás own/wish. Así, si cerrás sin marcar,
+    no queda nada en la base (no genera huérfanos)."""
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    g = db.game_with_state(conn, owner, oid)
+    if g is not None:
+        g["is_top"] = _is_top(g.get("rank_overall"))
+        conn.close()
+        return {"game": g, "saved": True}
+    conn.close()
+    try:
+        rec = bgg.fetch(oid)
+    except Exception as e:  # noqa — red; queda logueado en bgg._get
+        return JSONResponse({"error": f"BGG no respondió: {e}"}, status_code=502)
+    rec.pop("alt_names", None)          # transitorio, no hace falta en la ficha
+    rec["own"], rec["wishlist"] = 0, 0  # se muestra con "Ninguno" marcado
+    rec["is_top"] = _is_top(rec.get("rank_overall"))
+    # Expansión: la ficha se muestra rotulada "expansión de <madre>" y la única alta posible es
+    # colgarla del juego madre (ítem 3); NUNCA entra al catálogo como juego suelto. `is_expansion`
+    # y `expands` viajan para que el front arme esa ficha. Ver /api/games/{base}/expansions.
+    if not rec.get("is_expansion"):
+        rec.pop("expands", None)
+    return {"game": rec, "saved": False, "is_expansion": bool(rec.get("is_expansion"))}
 
 
 @app.post("/api/games/add")
@@ -251,6 +367,13 @@ def add_game(payload: dict = Body(...), owner: int = 0):
         rec = bgg.fetch(oid)
     except Exception as e:  # noqa
         return JSONResponse({"error": f"BGG no respondió: {e}"}, status_code=502)
+    # Guard: una expansión NO se da de alta como juego suelto (nunca entra a `games`/listas/stats).
+    # Se agrega colgada de su juego madre desde la ficha (ítem 3). El front usa `expands` para ofrecer
+    # "Agregar a <madre>".
+    if rec.get("is_expansion"):
+        return JSONResponse({"error": "es una expansión: agregala desde la ficha del juego base",
+                             "is_expansion": True, "expands": rec.get("expands") or [],
+                             "name": rec.get("name")}, status_code=400)
     conn = db.connect()
     owner = owner or db.get_me(conn)
     db.upsert_bgg(conn, rec)
@@ -263,19 +386,103 @@ def add_game(payload: dict = Body(...), owner: int = 0):
         st["wishlist_priority"] = int(payload.get("wishlist_priority", 3))
     db.set_holding(conn, owner, oid, st)
     conn.commit()
-    games = {g["objectid"]: g for g in db.games_for_owner(conn, owner)}
+    g = db.game_with_state(conn, owner, oid)
+    if g is not None:
+        g["is_top"] = _is_top(g.get("rank_overall"))
     conn.close()
-    return games.get(oid, {"ok": True})
+    return g or {"ok": True}
+
+
+# ---------------- expansiones (ítem 3) ----------------
+
+@app.get("/api/games/{base}/expansions")
+def list_expansions(base: str, owner: int = 0):
+    """Las expansiones que el perfil registró para el juego `base` (nombre + estado 📦/⭐). Pinta la
+    sección "Expansiones" de la ficha. `can_add` = el base está en tu colección/wishlist."""
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    mine = db.expansions_for(conn, owner, base)
+    can_add = db.owns_or_wishes(conn, owner, base)
+    conn.close()
+    return {"mine": mine, "can_add": can_add}
+
+
+@app.get("/api/games/{base}/expansions/catalog")
+def expansions_catalog(base: str, owner: int = 0):
+    """Panel "＋": expansiones OFICIALES del juego (de BGG, lazy) mergeadas con tu estado, para
+    marcar/editar. Incluye al final las tuyas que no figuren en la lista oficial (rarezas/promos)."""
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    can_add = db.owns_or_wishes(conn, owner, base)
+    mine = {e["exp_oid"]: e for e in db.expansions_for(conn, owner, base)}
+    conn.close()
+    try:
+        official = bgg.expansions_of(base)
+    except Exception as e:  # noqa — red; queda logueado en bgg._get
+        return JSONResponse({"error": f"BGG no respondió: {e}"}, status_code=502)
+    items = [{"id": o["id"], "name": o["name"], "state": (mine.get(o["id"]) or {}).get("state")}
+             for o in official]
+    seen = {o["id"] for o in official}
+    for exp_oid, e in mine.items():
+        if exp_oid not in seen:
+            items.append({"id": exp_oid, "name": e["name"], "state": e["state"]})
+    return {"items": items, "can_add": can_add}
+
+
+@app.post("/api/games/{base}/expansions")
+def set_expansion_ep(base: str, payload: dict = Body(...), owner: int = 0):
+    """Agrega/edita una expansión colgada del juego `base`. Gate: el base debe estar en own o wish.
+    `state` ∈ {'own','wish'}. Solo guarda nombre + estado (no trackea prioridad)."""
+    exp_oid = str(payload.get("exp_oid") or "").strip()
+    name = (payload.get("name") or "").strip()
+    state = payload.get("state") or "wish"
+    if not exp_oid or not name:
+        return JSONResponse({"error": "falta exp_oid o name"}, status_code=400)
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    if not db.owns_or_wishes(conn, owner, base):
+        conn.close()
+        return JSONResponse({"error": "agregá primero el juego base a tu colección o wishlist"},
+                            status_code=400)
+    # short_description: del payload (la ficha de búsqueda ya la tiene) o, si no, un fetch
+    # best-effort (una vez; queda guardada). Nunca voltea el alta si BGG no responde.
+    short_desc = payload.get("short_description")
+    if not short_desc:
+        try:
+            short_desc = bgg.fetch(exp_oid).get("short_description")
+        except Exception:  # noqa — la data de la expa es opcional; el nombre+estado alcanzan
+            short_desc = None
+    db.set_expansion(conn, owner, base, exp_oid, name, state, short_description=short_desc)
+    conn.commit()
+    mine = db.expansions_for(conn, owner, base)
+    conn.close()
+    return {"mine": mine, "can_add": True}
+
+
+@app.delete("/api/games/{base}/expansions/{exp_oid}")
+def remove_expansion_ep(base: str, exp_oid: str, owner: int = 0):
+    """Quita una expansión del juego (para este perfil)."""
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    db.remove_expansion(conn, owner, base, exp_oid)
+    conn.commit()
+    mine = db.expansions_for(conn, owner, base)
+    can_add = db.owns_or_wishes(conn, owner, base)
+    conn.close()
+    return {"mine": mine, "can_add": can_add}
 
 
 # ---------------- import / export ----------------
 
 @app.post("/api/import")
-async def import_csv(file: UploadFile = File(...), owner_name: str = Form(""),
+async def import_csv(background_tasks: BackgroundTasks,
+                     file: UploadFile = File(...), owner_name: str = Form(""),
                      mode: str = Form("both"), new_profile: str = Form("0"),
                      owner_id: int = Form(0)):
     """Importa un CSV (formato BGG o de esta app: se lee por nombre de columna).
-    Destino: perfil existente (owner_id), uno nuevo (new_profile+owner_name), o el mío."""
+    Destino: perfil existente (owner_id), uno nuevo (new_profile+owner_name), o el mío.
+    Tras importar, dispara en BACKGROUND la resolución de es_name de los pendientes (si hay key de
+    Gemini) — no bloquea la respuesta; si no hay key, quedan NULL para el próximo update (ítem 1c)."""
     raw = await file.read()
     text = raw.decode("utf-8-sig", errors="replace")
     conn = db.connect()
@@ -288,6 +495,7 @@ async def import_csv(file: UploadFile = File(...), owner_name: str = Form(""),
     conn.close()
     res = seedmod.import_csv(text, target, mode=mode, fetch_missing=False)
     res["owner_id"] = target
+    background_tasks.add_task(seedmod.resolve_es_names_runtime)  # alta masiva -> 1 batch si hay key
     return res
 
 
@@ -299,18 +507,38 @@ def reseed_catalog_ep():
     return seedmod.reseed_catalog()
 
 
-@app.post("/api/update/refresh")
-def update_refresh_ep(limit: int = 25, days: int = 30):
-    """Pasada B de 'Actualizar todo': re-baja de BGG (por lotes, resumible) SOLO los juegos
-    tenidos fuera del preseed y vencidos (>`days`). Diff real — no re-baja el top-5000 (eso lo
-    hizo A desde el archivo local) ni lo que ya está fresco."""
-    return seedmod.refresh_out_of_preseed(limit=limit, days=days)
+@app.post("/api/update")
+def update_ep():
+    """Ítem 4 — UN solo 'Actualizar': baja el dump de ranks más reciente (Range parcial ~10k),
+    reconcilia el top (altas/rerank/bajas), pone al día por id la cola >10k de tu colección
+    (refresh_tail) y resuelve es_name pendientes (si hay key). Un solo paso, sin re-bajar la data
+    de cada juego. Si la descarga del dump falla (red), devuelve 502 con el detalle — el error queda
+    logueado, no rompe la app."""
+    try:
+        return seedmod.update_ranks()
+    except Exception as e:  # noqa — la red puede fallar; se reporta y quedó logueado en seed
+        return JSONResponse({"error": f"no pude actualizar los rankings: {e}"}, status_code=502)
 
 
-@app.post("/api/update/gc")
-def update_gc_ep():
-    """Pasada C de 'Actualizar todo': GC de huérfanos (ni preseed ni tenidos)."""
-    return seedmod.gc_run()
+@app.get("/api/nudges")
+def nudges(owner: int = 0):
+    """Datos para los nudges no-nag (ítem 5): cuántos es_name del perfil están pendientes, hace
+    cuánto no se corre 'Actualizar', y si hay key de Gemini (el nudge de es_name solo aplica con
+    key: sin ella no se pueden resolver). El front decide si mostrar y respeta el 'no molestar'."""
+    import datetime
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    es_pending = db.count_es_pending(conn, owner)
+    last_update = db.meta_get(conn, "last_update")
+    conn.close()
+    stale_days = None
+    if last_update:
+        try:
+            stale_days = (datetime.date.today() - datetime.date.fromisoformat(last_update)).days
+        except ValueError:
+            stale_days = None
+    return {"es_pending": es_pending, "last_update": last_update, "stale_days": stale_days,
+            "gemini_ready": appconfig.public()["gemini_key_set"]}
 
 
 @app.post("/api/reconcile/preview")

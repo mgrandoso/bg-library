@@ -24,7 +24,9 @@ Estética de **mesa de juego premium**, responsive, con tema claro y oscuro.
 - 🤖 **Advisor** — dos modos: *¿Qué saco hoy?* (entre lo que tenés) y *¿Qué compro?* (de tu
   wishlist, mirando el balance de tu colección). Elegís una **ocasión**, respondés preguntas
   simples, y elegís motor: **determinístico** (scoring transparente, instantáneo) o **agente**
-  (Gemini razona sobre 20 candidatos y escribe la recomendación).
+  (Gemini razona sobre 20 candidatos y escribe la recomendación). En *¿Qué saco hoy?*, si un juego
+  candidato tiene **expansiones que poseés**, el agente las recibe (nombre + descripción) y puede
+  sugerir usarlas —o no, p. ej. con jugadores nuevos— explicando por qué.
 - 📊 **Panel** — destacados de tu colección, distribución por tipo / complejidad / edad, cobertura
   por número de jugadores (detecta huecos) y diseñadores más presentes.
 - 👥 **Perfiles** — además de la tuya, cargá las colecciones de tus amigos (crear, cambiar,
@@ -37,6 +39,17 @@ Estética de **mesa de juego premium**, responsive, con tema claro y oscuro.
   filtros/orden que la Biblioteca (tipo, jugadores, duración, complejidad · rank/rating/complejidad/año),
   con tus juegos marcados 📦/⭐ y alta directa a biblioteca/wishlist.
 - ➕ **Agregar juego** — buscás por nombre o pegás el ID / URL de BGG y trae todos los datos solo.
+  Las **expansiones** no entran como juego suelto: si buscás una, su ficha te avisa que es expansión
+  y solo te deja **sumarla al juego base** que ya tenés/deseás.
+- 📦 **Expansiones** — dentro de la ficha de cada juego tuyo, una sección para marcar qué
+  expansiones tenés (📦) o querés (⭐), con un panel "＋" que lista las oficiales de BGG. Viven
+  colgadas del juego madre (no ensucian listas ni estadísticas); en la Biblioteca podés buscar un
+  juego por el nombre de una expansión que tengas.
+- 🎨 **Apariencias** — tres temas elegibles (en Configurar y en el onboarding): *Clásica* (fieltro
+  oscuro, con día/noche), *Playa* (teal + coral sobre marfil) y *Taberna* (navy + madera sobre crema).
+- 🔒 **Modo seguro** — un candado en la barra que bloquea los cambios (agregar, estados, expansiones,
+  perfiles): para que un chico navegue, filtre y use el Advisor sin tocar la colección. Se abre con
+  un toque o con un PIN opcional, y arranca cerrado cada vez que abrís la app.
 
 ## Galería
 
@@ -81,34 +94,59 @@ con el catálogo cargado **sin bajar nada** — `python server/seed.py` lo mete 
 
 ### Ciclo de vida de los datos
 
-El catálogo `games` es, en todo momento, **(top-5000 del preseed) ∪ (todo lo que alguien tiene o
-desea)**. De ahí salen todas las reglas:
+Tu base es, en todo momento, **el top-5000 canónico ∪ tu colección** (todo lo que tenés o deseás),
+y nada más. Dos ideas clave:
 
-- **Entran** juegos al catálogo por cuatro vías: el preseed top-5000, marcarlos *tengo/quiero*,
-  agregarlos por búsqueda (ID/URL de BGG), o importar un CSV — cualquiera de estas suma el juego
-  aunque no esté en el top.
-- **Se van** (GC de huérfanos) solo si un juego **no** es top-5000 **y** ya no lo tiene ni lo desea
-  nadie. Un juego que se cae del top pero alguien tiene, se queda; uno que nadie tiene y no es top,
-  se limpia.
-- **Actualizar todo** (Perfiles y datos → Actualizar) hace el mantenimiento completo **por diff**,
-  rápido: (A) recarga el top-5000 desde el preseed local —instantáneo, sin red—, (B) re-baja de BGG
-  **solo tus juegos que quedaron fuera del top** y están vencidos (>30 días), y (C) corre el GC. El
-  costo de red no escala con el catálogo: solo toca los pocos juegos tuyos rankeados >5000 o caídos
-  del top. La pertenencia al preseed —no el rank guardado— es la fuente de verdad de "es top-5000".
+- **El top-5000 es igual para todos a una misma fecha** — un catálogo compartido; lo único personal
+  es *cuándo* actualizás. Lo tuyo (colección/wishlist) es privado y **persiste a toda actualización**.
+- **La pertenencia al top es dinámica:** "está en el top" = *rank ≤ 5000 en tu base* (que el update
+  reconcilia contra el ranking del día), **no** una lista congelada. El archivo del repo
+  (`data/bgg_top.json`) es solo la **semilla de arranque** para no bajar nada al instalar.
 
-Para regenerar el preseed vos mismo: `python build/preseed_top.py 5000`. Cuando este repo actualice
-`data/bgg_top.json`, alcanza con `git pull` + **Actualizar todo**.
+**Entran** juegos por: la semilla inicial, marcarlos *tengo/quiero*, buscarlos (ID/URL de BGG),
+importar un CSV, y —lo nuevo— **cualquier juego que entre al top-5000 aparece solo en el próximo
+Actualizar** (se trae su ficha completa por API). **Se van** (limpieza) solo los que **caen del top
+y nadie tiene ni desea**; los tuyos se quedan siempre, con su rank real.
 
-**¿Cada cuánto conviene?** Poco. En el top-5000 actual, cada año reciente aporta **~300 juegos**
-(2019: 359, 2021: 299, 2023: 302, 2024: 262…), o sea **~6% de recambio anual**, casi todo en la
-franja baja (ranks ~4000-5000). El **top-1000 es muy estable**. Un refresh **cada 6-12 meses** alcanza.
+**Actualizar** (Perfiles y datos → Actualizar) hace todo el mantenimiento en una corrida:
+
+1. **Baja el ranking del día** (dump diario de BGG), ~10.000 juegos, con margen sobre los 5.000.
+2. **Lo limpia:** el dump trae imperfecciones (mismo rank en dos juegos, ~7 filas duplicadas del
+   mismo juego, ~7 huecos). Se ordena por rank (desempata por *Geek Rating*), se **deduplica** y se
+   **re-enumera 1..N** → ranking contiguo, **sin repetidos ni huecos**.
+3. **Reconcilia el top-5000:** da de **alta** los que entraron (trae su ficha por API), **re-rankea**
+   los que ya estaban, y **da de baja** los que cayeron y nadie tiene.
+4. **Aprovecha el tramo 5001–10000** del mismo dump para **poner al día el rank de tus juegos** que
+   caen ahí — gratis, sin descargas extra— antes de descartar esa mitad.
+5. **Pone al día la cola** (tus juegos con rank > 10.000: clásicos masivos como Monopoly o Yahtzee)
+   pidiendo el rank de cada uno por id a BGG. Son un puñado, a veces cero — sin descargar el dump
+   completo por unos pocos.
+6. **Resuelve los nombres en español** de los juegos nuevos (los que ya estaban no se re-trabajan).
+
+**¿Cada cuánto actualizar?** Poco. En el top-5000 entran **~300 juegos/año** (~6% de recambio), casi
+todo en la franja baja (~4000-5000); el top-1000 es muy estable. Un update cada tanto alcanza. Y como
+la membresía es dinámica, **nadie depende de que se publique una base nueva** para ver lo que entró.
+Opcionalmente, cada tanto se sube al repo una `data/bgg_top.json` re-horneada, solo para que un
+install muy viejo no tenga que traer cientos de altas en su primer Actualizar.
+
+> **Nota para cambios de esquema:** si en el futuro se agrega un dato nuevo que la interfaz consume,
+> el **top-5000 es la referencia completa** (llega íntegro por la semilla / la reconciliación), pero
+> **los juegos de tu colección fuera del top pueden quedar sin ese dato** (se trajeron en su momento,
+> quizás antes del campo nuevo) y se completan **por diff** en las actualizaciones. La interfaz debe
+> tolerar el faltante.
 
 ## De dónde salen los datos
 
-BoardGameGeek cerró su XML API oficial (requiere token). Ludoteca usa la **API JSON pública del
-frontend de BGG** (`api.geekdo.com`: `geekitems` + `dynamicinfo`), que trae imágenes, links
-(diseñadores, categorías, mecánicas, tipo), edades y polls de la comunidad. El cache vive en
-`data/bgg_data.json` (regenerable con `build/enrich.py`).
+BoardGameGeek cerró su XML API oficial (requiere token). Ludoteca usa dos fuentes públicas:
+
+- **Ficha del juego** — la **API JSON del frontend de BGG** (`api.geekdo.com`: `geekitems` +
+  `dynamicinfo`): imágenes, links (diseñadores, categorías, mecánicas, tipo), edades y polls de la
+  comunidad. Se trae una vez, al entrar el juego a la base (es data estática).
+- **Ranking diario** — el dump CSV de [`beefsack/bgg-ranking-historicals`](https://github.com/beefsack/bgg-ranking-historicals)
+  (`YYYY-MM-DD.csv`, ~31k juegos rankeados). Es lo único volátil (rank + rating); se baja **parcial**
+  (~10k filas) en cada Actualizar — la cola de tu colección con rank > 10.000 se pone al día pidiendo
+  cada juego por id, sin bajar el dump completo. La app encuentra el último dump probando la fecha de
+  hoy y retrocediendo día a día si aún no se publicó (sin depender de un LLM).
 
 ## Estructura
 

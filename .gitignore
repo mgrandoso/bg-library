@@ -18,3 +18,9 @@ __pycache__/
 collection.csv
 # cache enriquecido de TU colección (revela tu set de juegos):
 data/bgg_data.json
+
+# intermedios del horneado del seed, backups y archivos retirados (nunca al repo):
+data/_*.json
+data/*.tmp
+data/*.bak
+data/*.retired
