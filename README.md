@@ -73,12 +73,28 @@ Estética de **mesa de juego premium**, responsive, con tema claro y oscuro.
 
 <table align="center">
   <tr>
-    <td width="50%"><img src="docs/advisor.png" alt="Advisor"><br><sub><b>Advisor</b> — qué sacar hoy o qué comprar, con recomendaciones guardadas</sub></td>
-    <td width="50%"><img src="docs/panel.png" alt="Panel de estadísticas"><br><sub><b>Panel</b> — destacados, distribución y cobertura por número de jugadores</sub></td>
+    <td width="50%">
+      <img src="docs/bgg.png" alt="Browse del top de BGG"><br>
+      <sub><b>BGG</b> — navegá el top-5000 con los mismos filtros que la Biblioteca</sub>
+      <details><summary>🔍 ampliar</summary><img src="docs/bgg.png" alt="BGG (grande)"></details>
+    </td>
+    <td width="50%">
+      <img src="docs/detail.png" alt="Ficha de un juego"><br>
+      <sub><b>Ficha</b> — edad, jugadores ideales, idioma, categorías y mecánicas</sub>
+      <details><summary>🔍 ampliar</summary><img src="docs/detail.png" alt="Ficha (grande)"></details>
+    </td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/bgg.png" alt="Browse del top de BGG"><br><sub><b>BGG</b> — navegá el top-5000 con los mismos filtros que la Biblioteca</sub></td>
-    <td width="50%"><img src="docs/detail.png" alt="Ficha de un juego"><br><sub><b>Ficha</b> — edad, jugadores ideales, idioma, categorías y mecánicas</sub></td>
+    <td width="50%">
+      <img src="docs/panel.png" alt="Panel de estadísticas"><br>
+      <sub><b>Panel</b> — destacados, distribución y cobertura por número de jugadores</sub>
+      <details><summary>🔍 ampliar</summary><img src="docs/panel.png" alt="Panel (grande)"></details>
+    </td>
+    <td width="50%">
+      <img src="docs/advisor.png" alt="Advisor"><br>
+      <sub><b>Advisor</b> — qué sacar hoy o qué comprar, con recomendaciones guardadas</sub>
+      <details><summary>🔍 ampliar</summary><img src="docs/advisor.png" alt="Advisor (grande)"></details>
+    </td>
   </tr>
 </table>
 
