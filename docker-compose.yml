@@ -5,6 +5,12 @@
 # el código pero reusan el volumen, asi que tus datos y tu API key sobreviven.
 #
 # Primer arranque: la DB nace vacia. Importa tu coleccion (CSV de BGG) y carga la API key desde la UI.
+#
+# SEGURIDAD: la app NO tiene autenticacion (el "modo seguro" es un freno anti-toques del lado del
+# cliente, no un login). Al publicar el puerto, cualquiera que llegue a el puede leer/editar la
+# coleccion y usar tu API key. Exponela SOLO en una LAN de confianza, o detras de un reverse proxy
+# con autenticacion (Caddy/Traefik + Authelia/basic-auth). Para uso en una sola maquina, cambia el
+# mapeo de puertos a "127.0.0.1:8778:8778" para que no salga a la red.
 services:
   ludoteca:
     build: .

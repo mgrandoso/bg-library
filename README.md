@@ -107,6 +107,29 @@ Abrí **http://localhost:8778**. Arranca **vacío**: un onboarding te deja carga
 > tus juegos (`data/bgg_data.json`) y tu API key (`config.json`) están **gitignored**: hacés
 > `git pull` para recibir mejoras del código sin que nada toque tu base ni tus cosas.
 
+## Deploy con Docker (self-hosting)
+
+Para correrla en un servidor (NAS, mini-PC, Raspberry) y que la familia entre desde varios
+dispositivos, hay un `Dockerfile` + `docker-compose.yml`:
+
+```bash
+docker compose up -d --build
+```
+
+- El **catálogo top-5000 se siembra solo** en el primer arranque (desde `data/bgg_top.json`, sin
+  bajar nada). La DB nace vacía: importás tu colección y cargás la API key desde la UI.
+- La DB (`bg.db`) y la config (`config.json`, con la key) viven en un **volumen** (`ludoteca_data`),
+  no en la imagen: los redeploys reconstruyen el código pero **reusan tus datos y tu key**. La key
+  también se puede inyectar por `GEMINI_API_KEY`.
+- Las rutas son configurables por entorno (`BG_DB_PATH` / `BG_CONFIG_PATH`); sin esas variables, la
+  app usa las de siempre → correr local con `uvicorn` sigue igual.
+
+> ⚠️ **Seguridad — la app no tiene login.** El *modo seguro* es un freno anti-toques del lado del
+> cliente, no autenticación. Si publicás el puerto, cualquiera en la red puede leer/editar la
+> colección y gastar tu cuota de Gemini. Exponela **solo en una LAN de confianza**, o detrás de un
+> **reverse proxy con auth** (Caddy/Traefik + Authelia). Para una sola máquina, usá el mapeo
+> `127.0.0.1:8778:8778` así no sale a la red.
+
 ## Advisor con agente (opcional)
 
 El modo **agente** usa **Google Gemini** (tiene tier gratis). Conseguí una API key en
@@ -183,9 +206,10 @@ BoardGameGeek cerró su XML API oficial (requiere token). Ludoteca usa dos fuent
 server/   app.py (API)  db.py (SQLite)  bgg.py (geekdo)  advisor.py (recomendador)
           seed.py  appconfig.py  tests.py
 web/      index.html  styles.css  app.js
-build/    enrich.py  backfill_desc.py  preseed_top.py (top-5000 BGG)
+build/    enrich.py  backfill_desc.py  preseed_top.py (top-5000 BGG)  shots.py (capturas del README)
 data/     bgg_top.json (top-5000 pre-seed, versionado) · bgg_data.json (cache local, gitignored)
 docs/     capturas del README
+Docker    Dockerfile · docker-compose.yml · .dockerignore (self-hosting; ver "Deploy con Docker")
 ```
 
 ## Tests
