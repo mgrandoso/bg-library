@@ -191,3 +191,13 @@ dato; si molesta, cambiar el proxy por "¿está en el preseed?".
 **Verificado:** `tests.py` 143/143 (owned_expansions_for solo `own`+short_desc; prompt play incluye
 expansiones e instrucción, buy no) + QA en navegador (3 apariencias con el liquid-glass de la topbar,
 modo seguro bloqueando la ficha y ocultando el ✎, onboarding con temas + candado, hub con alto fijo).
+
+**Ajustes posteriores (mismo día):** ficha del Advisor de **solo lectura** (`openDetail(g,{readonly})`:
+sin estados own/wish/ninguno, sin ✎, sin navegar por diseñador — es solo para ver detalle; el link a
+BGG abre pestaña nueva); "Ver ficha" al fondo de la columna del cover (full width, centrado); label del
+vibe pesado "para pensar en serio" (era un argentinismo). **Recomendaciones guardadas** (opt-in): tabla
+`saved_recs(owner_id, created_at, title, mode, engine, payload)` con el **snapshot** del resultado
+(sobrevive cambios de la colección); endpoints `GET/POST /api/saved` + `GET/DELETE /api/saved/{id}`;
+front con botón 💾 Guardar en las acciones + entrada "💾 Guardadas (N)" en Advisor (lista con re-ver y
+eliminar; reusa el camino de "reanudar" `ADV.result → renderResults`, `_saved` evita re-ofrecer guardar).
+`tests.py` **148/148**.

@@ -1,6 +1,7 @@
 """BG Library — backend FastAPI (multi-perfil)."""
 import csv
 import io
+import json
 import os
 import time
 
@@ -470,6 +471,73 @@ def remove_expansion_ep(base: str, exp_oid: str, owner: int = 0):
     can_add = db.owns_or_wishes(conn, owner, base)
     conn.close()
     return {"mine": mine, "can_add": can_add}
+
+
+# ---------------- recomendaciones guardadas del advisor (opt-in) ----------------
+
+@app.get("/api/saved")
+def list_saved(owner: int = 0):
+    """Metadata de las recomendaciones guardadas del perfil (más nuevas primero)."""
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    recs = db.saved_recs_for(conn, owner)
+    conn.close()
+    return {"saved": recs}
+
+
+@app.post("/api/saved")
+def save_rec_ep(payload: dict = Body(...), owner: int = 0):
+    """Guarda una recomendación (opt-in). Body: {title, mode, engine, result}. `result` es el
+    snapshot del resultado tal cual se mostró (picks, etc.) — se guarda idéntico."""
+    result = payload.get("result")
+    if not isinstance(result, dict) or not result.get("picks"):
+        return JSONResponse({"error": "no hay recomendación para guardar"}, status_code=400)
+    title = (payload.get("title") or "Recomendación").strip()
+    mode = payload.get("mode") or result.get("mode") or "play"
+    engine = payload.get("engine") or result.get("engine") or "rules"
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    rid = db.save_rec(conn, owner, title, mode, engine, json.dumps(result, ensure_ascii=False))
+    conn.commit()
+    conn.close()
+    return {"id": rid}
+
+
+@app.get("/api/saved/{rec_id}")
+def get_saved(rec_id: int, owner: int = 0):
+    """Una recomendación guardada con su snapshot completo (para volver a mostrarla)."""
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    rec = db.get_saved_rec(conn, owner, rec_id)
+    conn.close()
+    if not rec:
+        return JSONResponse({"error": "no encontrada"}, status_code=404)
+    return {"rec": rec}
+
+
+@app.patch("/api/saved/{rec_id}")
+def rename_saved(rec_id: int, payload: dict = Body(...), owner: int = 0):
+    """Renombra una recomendación guardada. Body: {title}."""
+    title = (payload.get("title") or "").strip()
+    if not title:
+        return JSONResponse({"error": "falta el título"}, status_code=400)
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    db.rename_saved_rec(conn, owner, rec_id, title)
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.delete("/api/saved/{rec_id}")
+def delete_saved(rec_id: int, owner: int = 0):
+    """Borra una recomendación guardada del perfil."""
+    conn = db.connect()
+    owner = owner or db.get_me(conn)
+    db.delete_saved_rec(conn, owner, rec_id)
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 
 # ---------------- import / export ----------------

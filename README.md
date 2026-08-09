@@ -1,10 +1,25 @@
-<h1 align="center">🎲 Ludoteca</h1>
+<div align="center">
 
-<p align="center"><b>Tu biblioteca de juegos de mesa</b> — navegá tu colección con datos y portadas de BoardGameGeek, mirá estadísticas, y dejá que un advisor te diga <i>qué sacar a la mesa hoy</i> o <i>qué te conviene comprar</i>.</p>
+# 🎲 Ludoteca
 
-<p align="center">
-  <img src="docs/library.png" alt="Biblioteca de Ludoteca" width="900">
+**Tu biblioteca de juegos de mesa** — navegá tu colección con datos y portadas de BoardGameGeek,<br>
+mirá estadísticas, y dejá que un advisor te diga *qué sacar a la mesa hoy* o *qué te conviene comprar*.
+
+<p>
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white">
+  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white">
+  <img alt="Vanilla JS" src="https://img.shields.io/badge/Vanilla_JS-F7DF1E?logo=javascript&logoColor=black">
+  <img alt="Advisor: Gemini" src="https://img.shields.io/badge/Advisor-Gemini-8E75B2?logo=googlegemini&logoColor=white">
+  <img alt="local-first" src="https://img.shields.io/badge/local--first-sin_nube-4c9a86">
+  <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green">
 </p>
+
+<img src="docs/library.png" alt="Biblioteca de Ludoteca" width="900">
+
+<sub><a href="#qué-hace">Qué hace</a> · <a href="#correr">Correr</a> · <a href="#advisor-con-agente-opcional">Advisor</a> · <a href="#catálogo-bgg-pre-cargado-top-5000">Catálogo BGG</a> · <a href="#de-dónde-salen-los-datos">Datos</a> · <a href="#estructura">Estructura</a></sub>
+
+</div>
 
 ---
 
@@ -27,6 +42,9 @@ Estética de **mesa de juego premium**, responsive, con tema claro y oscuro.
   (Gemini razona sobre 20 candidatos y escribe la recomendación). En *¿Qué saco hoy?*, si un juego
   candidato tiene **expansiones que poseés**, el agente las recibe (nombre + descripción) y puede
   sugerir usarlas —o no, p. ej. con jugadores nuevos— explicando por qué.
+- 💾 **Recomendaciones guardadas** — si una recomendación te gusta, la guardás (opt-in) desde el
+  botón 💾 y queda en *Advisor → Guardadas* para volver a verla o eliminarla. Se guarda el resultado
+  exacto (snapshot), por perfil. La ficha que abrís desde una recomendación es de solo lectura.
 - 📊 **Panel** — destacados de tu colección, distribución por tipo / complejidad / edad, cobertura
   por número de jugadores (detecta huecos) y diseñadores más presentes.
 - 👥 **Perfiles** — además de la tuya, cargá las colecciones de tus amigos (crear, cambiar,
@@ -53,14 +71,16 @@ Estética de **mesa de juego premium**, responsive, con tema claro y oscuro.
 
 ## Galería
 
-<p align="center">
-  <img src="docs/advisor.png" alt="Advisor" width="45%">
-  <img src="docs/panel.png" alt="Panel de estadísticas" width="45%">
-</p>
-<p align="center">
-  <img src="docs/bgg.png" alt="Browse del top de BGG" width="45%">
-  <img src="docs/detail.png" alt="Ficha de un juego" width="45%">
-</p>
+<table align="center">
+  <tr>
+    <td width="50%"><img src="docs/advisor.png" alt="Advisor"><br><sub><b>Advisor</b> — qué sacar hoy o qué comprar, con recomendaciones guardadas</sub></td>
+    <td width="50%"><img src="docs/panel.png" alt="Panel de estadísticas"><br><sub><b>Panel</b> — destacados, distribución y cobertura por número de jugadores</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/bgg.png" alt="Browse del top de BGG"><br><sub><b>BGG</b> — navegá el top-5000 con los mismos filtros que la Biblioteca</sub></td>
+    <td width="50%"><img src="docs/detail.png" alt="Ficha de un juego"><br><sub><b>Ficha</b> — edad, jugadores ideales, idioma, categorías y mecánicas</sub></td>
+  </tr>
+</table>
 
 ## Correr
 

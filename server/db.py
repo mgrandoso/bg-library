@@ -96,7 +96,17 @@ CREATE TABLE IF NOT EXISTS expansions (
     updated_at        INTEGER DEFAULT 0,
     PRIMARY KEY (owner_id, base_oid, exp_oid)
 );
+CREATE TABLE IF NOT EXISTS saved_recs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id    INTEGER NOT NULL,
+    created_at  INTEGER NOT NULL,
+    title       TEXT,
+    mode        TEXT,                  -- 'play' | 'buy'
+    engine      TEXT,                  -- 'gemini:...' | 'rules'
+    payload     TEXT NOT NULL          -- snapshot JSON del resultado (picks, etc.)
+);
 CREATE INDEX IF NOT EXISTS idx_exp_owner_base ON expansions(owner_id, base_oid);
+CREATE INDEX IF NOT EXISTS idx_saved_owner ON saved_recs(owner_id);
 CREATE INDEX IF NOT EXISTS idx_h_owner ON holdings(owner_id);
 CREATE INDEX IF NOT EXISTS idx_h_own ON holdings(own);
 CREATE INDEX IF NOT EXISTS idx_h_wish ON holdings(wishlist);
@@ -414,6 +424,53 @@ def remove_expansion(conn, owner_id, base_oid, exp_oid):
     """Quita una expansión del juego (para ese perfil). No commitea."""
     conn.execute("DELETE FROM expansions WHERE owner_id=? AND base_oid=? AND exp_oid=?",
                  (owner_id, base_oid, str(exp_oid)))
+
+
+# ---- recomendaciones guardadas del advisor (opt-in; snapshot del resultado) ----
+
+def save_rec(conn, owner_id, title, mode, engine, payload):
+    """Guarda una recomendación del advisor para el perfil. `payload` es un string JSON (el
+    snapshot del resultado tal cual se mostró). No commitea. Devuelve el id nuevo."""
+    cur = conn.execute(
+        "INSERT INTO saved_recs(owner_id, created_at, title, mode, engine, payload) "
+        "VALUES(?,?,?,?,?,?)",
+        (owner_id, int(time.time()), title, mode, engine, payload))
+    return cur.lastrowid
+
+
+def saved_recs_for(conn, owner_id):
+    """Metadata de las recomendaciones guardadas del perfil, más nuevas primero (sin el payload,
+    para una lista liviana)."""
+    return [dict(r) for r in conn.execute(
+        "SELECT id, created_at, title, mode, engine FROM saved_recs "
+        "WHERE owner_id=? ORDER BY created_at DESC, id DESC", (owner_id,)).fetchall()]
+
+
+def get_saved_rec(conn, owner_id, rec_id):
+    """Una recomendación guardada con su `payload` YA parseado (dict), o None si no existe o es de
+    otro perfil (scope por owner)."""
+    r = conn.execute(
+        "SELECT id, created_at, title, mode, engine, payload FROM saved_recs "
+        "WHERE id=? AND owner_id=?", (rec_id, owner_id)).fetchone()
+    if not r:
+        return None
+    d = dict(r)
+    try:
+        d["payload"] = json.loads(d["payload"])
+    except (TypeError, json.JSONDecodeError):
+        d["payload"] = {}
+    return d
+
+
+def rename_saved_rec(conn, owner_id, rec_id, title):
+    """Renombra una recomendación guardada del perfil (no commitea)."""
+    conn.execute("UPDATE saved_recs SET title=? WHERE id=? AND owner_id=?",
+                 (title, rec_id, owner_id))
+
+
+def delete_saved_rec(conn, owner_id, rec_id):
+    """Borra una recomendación guardada del perfil (no commitea)."""
+    conn.execute("DELETE FROM saved_recs WHERE id=? AND owner_id=?", (rec_id, owner_id))
 
 
 def set_holding(conn, owner_id, objectid, patch):

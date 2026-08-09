@@ -754,5 +754,30 @@ try:
 except Exception as e:  # noqa
     check(f"expansiones en prompt ({e})", False)
 
+# ---- recomendaciones guardadas (saved_recs): save/list/get/delete, scope por owner ----
+try:
+    import json as _json
+    conn = db.connect(); _me = db.get_me(conn)
+    _pl = _json.dumps({"mode": "play", "engine": "gemini:demo",
+                       "picks": [{"objectid": "1", "name": "Juego X", "pitch": "p"}]})
+    _rid = db.save_rec(conn, _me, "Rec QA", "play", "gemini:demo", _pl); conn.commit()
+    check("save_rec devuelve un id", isinstance(_rid, int) and _rid > 0)
+    _list = db.saved_recs_for(conn, _me)
+    check("saved_recs_for lista la guardada (con metadata, sin payload)",
+          any(r["id"] == _rid and r["title"] == "Rec QA" and "payload" not in r for r in _list))
+    _one = db.get_saved_rec(conn, _me, _rid)
+    check("get_saved_rec trae el payload parseado",
+          _one is not None and _one["payload"]["picks"][0]["name"] == "Juego X")
+    check("get_saved_rec scope por owner (otro perfil no la ve)",
+          db.get_saved_rec(conn, _me + 99999, _rid) is None)
+    db.rename_saved_rec(conn, _me, _rid, "Rec renombrada"); conn.commit()
+    check("rename_saved_rec cambia el título",
+          db.get_saved_rec(conn, _me, _rid)["title"] == "Rec renombrada")
+    db.delete_saved_rec(conn, _me, _rid); conn.commit()
+    check("delete_saved_rec la elimina", db.get_saved_rec(conn, _me, _rid) is None)
+    conn.close()
+except Exception as e:  # noqa
+    check(f"saved_recs ({e})", False)
+
 print(f"\n{PASS} ok, {FAIL} fail")
 raise SystemExit(1 if FAIL else 0)
