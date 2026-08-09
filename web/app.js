@@ -813,7 +813,7 @@ function playersViz(g) {
   }
   return out + '</div>';
 }
-function openDetail(g) {
+function openDetail(g, opts = {}) {
   const t = (g.subdomains || [])[0];
   const ageCom = g.age_community ? esc(g.age_community) : '—';
   const inner = node(`<div>
@@ -849,25 +849,30 @@ function openDetail(g) {
     <div class="state-bar"></div>
   </div>`);
 
-  // click en diseñador -> filtrar
-  inner.querySelectorAll('#desigChips .tagchip').forEach(ch => ch.addEventListener('click', () => {
-    S.filters.designer = ch.dataset.d; S.view = 'library';
-    $$('#nav button').forEach(x => x.classList.toggle('active', x.dataset.view === 'library'));
-    ov.remove(); render();
-  }));
+  // click en diseñador -> filtrar (deshabilitado en solo lectura: no navega a la Biblioteca)
+  if (opts.readonly) {
+    inner.querySelectorAll('#desigChips .tagchip').forEach(ch => ch.classList.remove('click'));
+  } else {
+    inner.querySelectorAll('#desigChips .tagchip').forEach(ch => ch.addEventListener('click', () => {
+      S.filters.designer = ch.dataset.d; S.view = 'library';
+      $$('#nav button').forEach(x => x.classList.toggle('active', x.dataset.view === 'library'));
+      ov.remove(); render();
+    }));
+  }
 
-  // barra de estado
+  // barra de estado — en el advisor la ficha es de SOLO LECTURA (no es el lugar para editar)
   const bar = inner.querySelector('.state-bar');
-  bar.append(stateControls(g, ov => { }));
+  if (opts.readonly) bar.remove();
+  else bar.append(stateControls(g));
   const ov = overlay(inner);
   setupDescription(inner, g);
-  renderExpansions(inner, g);
+  renderExpansions(inner, g, opts);
 }
 
 /* ===== Expansiones (ítem 3): viven dentro de la ficha del juego madre ===== */
 // Sección en la ficha: las expansiones que tenés/deseás (📦/⭐) + un "＋" para agregar/editar.
 // Solo aparece si el juego está en tu colección o wishlist (si no, no podés tener expansiones).
-async function renderExpansions(inner, g) {
+async function renderExpansions(inner, g, opts = {}) {
   const box = inner.querySelector('#expSection'); if (!box) return;
   if (g._preview || g._expansion) return;                 // preview sin guardar / ficha de expa
   if (!(g.own || g.wishlist)) return;                     // gate: solo juegos tuyos
@@ -875,8 +880,8 @@ async function renderExpansions(inner, g) {
     g.expansions = mine;                                  // cachear para el buscador de biblioteca
     const chips = mine.map(e =>
       `<span class="tagchip">${e.state === 'own' ? '📦' : '⭐'} ${esc(e.name)}</span>`).join('');
-    // el lápiz de edición se oculta con el candado cerrado (modo seguro)
-    const editBtn = mutationsLocked() ? '' : ' <button class="exp-add" title="Agregar, editar o quitar expansiones">✎</button>';
+    // el lápiz de edición se oculta en solo lectura (advisor) o con el candado cerrado (modo seguro)
+    const editBtn = (opts.readonly || mutationsLocked()) ? '' : ' <button class="exp-add" title="Agregar, editar o quitar expansiones">✎</button>';
     box.innerHTML = `<div><div class="section-h" style="margin-top:8px;display:flex;align-items:center;gap:8px">
         Expansiones${editBtn}</div>
       ${mine.length ? `<div class="chips-line">${chips}</div>`
@@ -1536,7 +1541,7 @@ function renderResults(out) {
         <div class="rec-why">${(p.reasons || []).map(r => `<span class="tagchip">✓ ${esc(r)}</span>`).join('')}</div>
       </div>
     </div>`);
-    c.querySelector('.rec-ficha').addEventListener('click', () => openDetail(g));
+    c.querySelector('.rec-ficha').addEventListener('click', () => openDetail(g, { readonly: true }));
     res.append(c);
   });
   // acciones: reintentar con Gemini (si cayó al determinístico) + sorprendeme + volver a buscar
@@ -1552,7 +1557,7 @@ function renderResults(out) {
       sp.classList.add('dice-rolling'); setTimeout(() => sp.classList.remove('dice-rolling'), 600);
       const top = out.picks.slice(0, 3);                 // al azar entre los 3 de mejor fit
       const pick = top[Math.floor(Math.random() * top.length)];
-      const g = byId[pick.objectid] || pick; setTimeout(() => openDetail(g), 300);
+      const g = byId[pick.objectid] || pick; setTimeout(() => openDetail(g, { readonly: true }), 300);
     });
     actions.append(sp);
   }
