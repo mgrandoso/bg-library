@@ -9,6 +9,12 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-08-09 — Ajuste responsive (iPad)
+### Fixed
+- En **Biblioteca/Wishlist sobre iPad**, el combo **Diseñador** se ensanchaba con su opción más larga
+  y empujaba la flecha de orden a una segunda línea. Se le acota el ancho solo en tablet (≤1200px);
+  en desktop queda igual. BGG no se ve afectado (no tiene filtro de diseñador).
+
 ## [0.8.0] — 2026-08-09 — Import más inteligente + fix de onboarding
 ### Changed
 - El **import por CSV** ahora absorbe las expansiones coladas igual que el alta a mano: en el pase

@@ -181,6 +181,13 @@ img { display: block; }
 #btnAdd { background: linear-gradient(150deg, var(--brass-2), var(--brass)); color: var(--brass-ink); border: 0; }
 #btnAdd:hover { color: var(--brass-ink); filter: brightness(1.05); }
 
+/* iPad/tablet: el <select> de Diseñador se ensancha con su opción más larga y empuja la flecha de
+   orden a una segunda línea. Le recortamos ~(botón de orden + separación) solo en tablet; el valor
+   se trunca en la caja pero el desplegable sigue completo. En desktop (ancho) no cambia nada. */
+@media (max-width: 1200px) {
+  .filters > select.flt-designer { max-width: 170px; }
+}
+
 /* ---------------- layout ---------------- */
 main { max-width: var(--maxw); margin: 0 auto; padding: 26px 22px 80px; }
 .view { animation: fade .35s ease; }

@@ -489,7 +489,7 @@ function renderFilters(kind) {
 
   // designers presentes
   const designers = [...new Set(S.games.filter(g => kind === 'own' ? g.own : g.wishlist).flatMap(g => (g.designers || []).map(d => d.name)))].sort();
-  const dsel = node(`<select title="Diseñador"><option value="">Diseñador</option>${designers.map(d => `<option ${f.designer === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>`);
+  const dsel = node(`<select class="flt-designer" title="Diseñador"><option value="">Diseñador</option>${designers.map(d => `<option ${f.designer === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>`);
   dsel.addEventListener('change', e => { f.designer = e.target.value; refreshGrid(kind); });
   bar.append(dsel);
 
