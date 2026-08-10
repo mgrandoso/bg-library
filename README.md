@@ -63,6 +63,11 @@ Estética de **mesa de juego premium**, responsive, con tema claro y oscuro.
   expansiones tenés (📦) o querés (⭐), con un panel "＋" que lista las oficiales de BGG. Viven
   colgadas del juego madre (no ensucian listas ni estadísticas); en la Biblioteca podés buscar un
   juego por el nombre de una expansión que tengas.
+- 📱 **Multi-dispositivo (responsive)** — pensada para usarse cómoda en **celular, tablet (vertical y
+  horizontal) y escritorio**. En pantallas chicas la navegación pasa a **iconos** y los filtros se
+  agrupan en **desplegables colapsables** (en vez de desbordar la barra); la ficha se reordena a una
+  columna; y detalles finos se ajustan al dispositivo (p. ej. el largo del resumen antes del "ver más":
+  60 palabras en celular, 70 en tablet, 80 en PC).
 - 🎨 **Apariencias** — tres temas elegibles (en Configurar y en el onboarding): *Clásica* (fieltro
   oscuro, con día/noche), *Playa* (teal + coral sobre marfil) y *Taberna* (navy + madera sobre crema).
 - 🔒 **Modo seguro** — un candado en la barra que bloquea los cambios (agregar, estados, expansiones,

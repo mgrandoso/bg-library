@@ -542,6 +542,55 @@ function renderCollection(kind) {
   return wrap;
 }
 
+// Ensamblado de la barra de filtros, común a Biblioteca/Wishlist y BGG: la estructura de las tres ramas
+// (compacto con 3 grupos colapsables / tablet horizontal con 2 botones / desktop inline) es idéntica,
+// así que vivía duplicada en las dos funciones. Acá se arma una sola vez; las diferencias entre vistas
+// llegan ya resueltas en `p`:
+//   p.inline       controles de la línea 1 en desktop y tablet horizontal (Biblioteca incluye el combo
+//                  de diseñador; BGG no —allá el diseñador es un chip removible → p.designerChip)
+//   p.filtrosBody  cuerpo del grupo "Filtros" en compacto (mismos controles ordenados para el panel)
+//   p.typeChips    chips de tipo (grupo "Tipo") · p.mech faceta "Mecánicas" ({button, panel}) ya cableada
+//   p.clearBtn, p.countTag   tail (Limpiar + contador); cada vista ya les puso su id
+//   p.designerChip chip removible de diseñador (solo BGG; suelto en tablet horizontal/desktop) o null
+//   p.activeCount  nº de selects activos → badge "(N)" del grupo Filtros en compacto
+function assembleFilterBar(bar, p) {
+  const f = S.filters;
+  const mkTail = () => { const t = node('<div class="filters-tail"></div>'); t.append(p.clearBtn, p.countTag); return t; };
+  if (isCompact()) {
+    // celular / tablet vertical: tres grupos colapsables (Filtros / Tipo / Mecánicas) + Limpiar/contador
+    const gFiltros = filterGroup('filtros', '🎛', 'Filtros', p.activeCount, p.filtrosBody);
+    const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, p.typeChips);
+    const fbtns = node('<div class="fbtns"></div>');
+    fbtns.append(gFiltros.button, gTipo.button, p.mech.button);
+    wireAccordion([gFiltros, gTipo, p.mech]);   // un solo grupo abierto a la vez
+    const tail = mkTail();
+    // celular: Limpiar + "N juegos" en su propia fila abajo. Tablet vertical: en la misma fila de los
+    // botones, a la derecha (CSS: .fbtns .filters-tail).
+    if (isMobile()) bar.append(fbtns, gFiltros.panel, gTipo.panel, p.mech.panel, tail);
+    else { fbtns.append(tail); bar.append(fbtns, gFiltros.panel, gTipo.panel, p.mech.panel); }
+  } else if (isTabletLandscape()) {
+    // tablet horizontal: línea 1 inline (como PC); línea 2 con DOS botones colapsables (Tipo/Mecánica)
+    // en acordeón + Limpiar/contador a la derecha. El diseñador activo (BGG) va suelto en esa fila.
+    bar.append(...p.inline);
+    const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, p.typeChips);
+    const fbtns = node('<div class="fbtns"></div>');
+    fbtns.append(gTipo.button, p.mech.button);
+    if (p.designerChip) fbtns.append(p.designerChip);
+    fbtns.append(mkTail());
+    wireAccordion([gTipo, p.mech]);   // un solo grupo abierto a la vez
+    bar.append(fbtns, gTipo.panel, p.mech.panel);
+  } else {
+    // desktop: todo inline, como siempre
+    bar.append(...p.inline);
+    const chips = node('<div class="type-chips"></div>');
+    p.typeChips.forEach(c => chips.append(c));
+    chips.append(p.mech.button);
+    if (p.designerChip) chips.append(p.designerChip);
+    chips.append(p.clearBtn, p.countTag);
+    bar.append(chips, p.mech.panel);
+  }
+}
+
 function renderFilters(kind) {
   const f = S.filters;
   const bar = node('<div class="filters"></div>');
@@ -605,38 +654,13 @@ function renderFilters(kind) {
   clearBtn.style.display = hasActiveFilters() ? 'inline-flex' : 'none';
   const countTag = node('<span class="count-tag" id="countTag"></span>');
 
-  if (isCompact()) {
-    // celular / tablet vertical: tres grupos colapsables (Filtros / Tipo / Mecánicas) + Limpiar/contador
-    const gFiltros = filterGroup('filtros', '🎛', 'Filtros', activeSelectCount(f), [players, time, weight, dsel, sort, dirBtn]);
-    const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
-    const fbtns = node('<div class="fbtns"></div>');
-    fbtns.append(gFiltros.button, gTipo.button, mech.button);
-    wireAccordion([gFiltros, gTipo, mech]);   // un solo grupo abierto a la vez
-    const tail = node('<div class="filters-tail"></div>');
-    tail.append(clearBtn, countTag);
-    // celular: Limpiar + "N juegos" van en su propia fila abajo (no sobra ancho). Tablet vertical:
-    // hay espacio → van en la MISMA fila de los botones, a la derecha (CSS: .fbtns .filters-tail).
-    if (isMobile()) bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
-    else { fbtns.append(tail); bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel); }
-  } else if (isTabletLandscape()) {
-    // tablet horizontal: línea 1 con los selects inline (igual que PC); línea 2 con DOS botones
-    // colapsables (Tipo / Mecánica) en acordeón + Limpiar/contador a la derecha. Todo en 2 líneas.
-    bar.append(players, time, weight, dsel, sort, dirBtn);
-    const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
-    const fbtns = node('<div class="fbtns"></div>');
-    const tail = node('<div class="filters-tail"></div>');
-    tail.append(clearBtn, countTag);
-    fbtns.append(gTipo.button, mech.button, tail);
-    wireAccordion([gTipo, mech]);   // un solo grupo abierto a la vez
-    bar.append(fbtns, gTipo.panel, mech.panel);
-  } else {
-    // desktop: todo inline, como siempre
-    bar.append(players, time, weight, dsel, sort, dirBtn);
-    const chips = node('<div class="type-chips"></div>');
-    typeChips.forEach(c => chips.append(c));
-    chips.append(mech.button, clearBtn, countTag);
-    bar.append(chips, mech.panel);
-  }
+  // Biblioteca/Wishlist: el diseñador es un combo (dsel) que va inline / en el panel Filtros → misma
+  // lista para línea 1 y para el grupo Filtros. No hay chip removible de diseñador.
+  const inline = [players, time, weight, dsel, sort, dirBtn];
+  assembleFilterBar(bar, {
+    inline, filtrosBody: inline, typeChips, mech,
+    clearBtn, countTag, designerChip: null, activeCount: activeSelectCount(f),
+  });
   return bar;
 }
 
@@ -773,47 +797,17 @@ function renderBGGFilters() {
   clearBtn.style.display = bggHasActiveFilters() ? 'inline-flex' : 'none';
   const countTag = node('<span class="count-tag" id="bggCount"></span>');
 
-  if (isCompact()) {
-    // celular / tablet vertical: mismos tres grupos que Biblioteca. BGG no tiene combo de diseñador
-    // (~2800 opciones), así que el diseñador activo va como chip removible DENTRO del panel Filtros,
-    // en el lugar que ocuparía el select de diseñador (no como chip suelto afuera). activeSelectCount
-    // ya lo cuenta → el badge "Filtros (N)" queda consistente con Biblioteca/Wishlist.
-    const filtrosBody = [players, time, weight];
-    if (dchip) filtrosBody.push(dchip);       // slot del diseñador
-    filtrosBody.push(sort, dirBtn);
-    const gFiltros = filterGroup('filtros', '🎛', 'Filtros', activeSelectCount(f), filtrosBody);
-    const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
-    const fbtns = node('<div class="fbtns"></div>');
-    fbtns.append(gFiltros.button, gTipo.button, mech.button);
-    wireAccordion([gFiltros, gTipo, mech]);   // un solo grupo abierto a la vez
-    const tail = node('<div class="filters-tail"></div>');
-    tail.append(clearBtn, countTag);          // afuera SOLO Limpiar + contador
-    // celular: tail en fila propia abajo. Tablet vertical: en la misma fila de los botones, a la
-    // derecha (CSS: .fbtns .filters-tail).
-    if (isMobile()) bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
-    else { fbtns.append(tail); bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel); }
-  } else if (isTabletLandscape()) {
-    // tablet horizontal: igual que Biblioteca (línea 1 inline, línea 2 con Tipo/Mecánica colapsables).
-    // El diseñador activo va como chip removible suelto en la fila de los botones (BGG no tiene combo).
-    bar.append(players, time, weight, sort, dirBtn);
-    const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
-    const fbtns = node('<div class="fbtns"></div>');
-    fbtns.append(gTipo.button, mech.button);
-    if (dchip) fbtns.append(dchip);
-    const tail = node('<div class="filters-tail"></div>');
-    tail.append(clearBtn, countTag);
-    fbtns.append(tail);
-    wireAccordion([gTipo, mech]);   // un solo grupo abierto a la vez
-    bar.append(fbtns, gTipo.panel, mech.panel);
-  } else {
-    bar.append(players, time, weight, sort, dirBtn);
-    const chips = node('<div class="type-chips"></div>');
-    typeChips.forEach(c => chips.append(c));
-    chips.append(mech.button);
-    if (dchip) chips.append(dchip);
-    chips.append(clearBtn, countTag);
-    bar.append(chips, mech.panel);
-  }
+  // BGG no tiene combo de diseñador (~2800 opciones): el diseñador activo es un chip removible (dchip).
+  // En compacto va DENTRO del panel Filtros (en el slot del diseñador, para que activeSelectCount lo
+  // cuente igual que en Biblioteca); en tablet horizontal/desktop va suelto (p.designerChip).
+  const inline = [players, time, weight, sort, dirBtn];
+  const filtrosBody = [players, time, weight];
+  if (dchip) filtrosBody.push(dchip);         // slot del diseñador dentro del panel Filtros
+  filtrosBody.push(sort, dirBtn);
+  assembleFilterBar(bar, {
+    inline, filtrosBody, typeChips, mech,
+    clearBtn, countTag, designerChip: dchip, activeCount: activeSelectCount(f),
+  });
   return bar;
 }
 

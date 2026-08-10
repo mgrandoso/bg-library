@@ -9,6 +9,19 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.12.6] — 2026-08-10 — Refactor de la barra de filtros + README multi-dispositivo
+### Changed
+- **Refactor (Clean Code):** la estructura de la barra de filtros (compacto con 3 grupos / tablet
+  horizontal con 2 botones / desktop inline) estaba **duplicada casi igual** entre Biblioteca/Wishlist
+  y BGG. Se extrajo un único `assembleFilterBar(bar, p)` que arma las tres ramas una sola vez; cada
+  vista le pasa sus diferencias como datos (combo de diseñador vs. chip removible, callbacks, ids). Sin
+  cambios de comportamiento (verificado en las 6 combinaciones vista × formato). Elimina ~50 líneas
+  duplicadas y deja un solo lugar para tocar el layout de filtros.
+### Docs
+- **README:** se agrega un ítem **"📱 Multi-dispositivo (responsive)"** que cuenta la experiencia en
+  celular/tablet/escritorio (nav en iconos, filtros colapsables, ficha en una columna, resumen por
+  dispositivo). Antes "responsive" solo aparecía al pasar.
+
 ## [0.12.5] — 2026-08-10 — Tablet horizontal: filtros en dos botones + pulidos de PC/tablet
 ### Added
 - **Filtros en tablet horizontal (Biblioteca, Wishlist y BGG):** la primera línea queda inline como PC,
