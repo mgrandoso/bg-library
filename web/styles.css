@@ -928,6 +928,10 @@ select, .mini-select {
   /* "¿Qué saco hoy?" y "¿Qué compro?" quedan en un solo renglón (como en PC), no apiladas */
   .mode-switch { gap: 10px; }
   .mode-card { max-width: none; }
+  /* En iOS Safari, pegada al borde la flechita caía en la franja que revela la barra inferior:
+     el primer tap solo mostraba el chrome (y la empujaba arriba), el segundo recién disparaba.
+     La alejamos del borde para que el tap llegue directo al botón. */
+  .to-top { bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
 
 /* expansiones (ítem 3) */

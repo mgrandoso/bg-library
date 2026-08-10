@@ -419,13 +419,12 @@ async function loadOwners() {
   if (!S.owner) S.owner = (S.owners.find(o => o.is_me) || S.owners[0]).id;
   fillOwnerSel();
 }
-// En celular y en tablet vertical no mostramos el "(N)" de juegos en el selector de perfil (lo pidió
-// el usuario); el ancho de la barra se mantiene por min-width en CSS para que no se achique.
+// El selector de perfil muestra solo el nombre; el "(N)" de juegos no aportaba y lo sacamos de todos
+// lados. El ancho de la barra se mantiene por min-width en CSS para que no se achique.
 function fillOwnerSel() {
   const sel = $('#ownerSel'); if (!sel) return;
-  const mob = isCompact();
   sel.innerHTML = S.owners.map(o =>
-    `<option value="${o.id}">${o.is_me ? '👤 ' : '👥 '}${esc(o.name)}${mob ? '' : ` (${o.own_count})`}</option>`).join('');
+    `<option value="${o.id}">${o.is_me ? '👤 ' : '👥 '}${esc(o.name)}</option>`).join('');
   sel.value = S.owner;
 }
 async function loadGames() {

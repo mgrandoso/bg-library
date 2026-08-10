@@ -9,6 +9,17 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.12.9] — 2026-08-10 — Fix del botón "volver arriba" en iOS y limpieza del selector de perfil
+### Changed
+- **Selector de perfil sin el `(N)`:** el contador de juegos entre paréntesis (p. ej. `Vos (154)`) ya no
+  aparece en ningún lado. En celular y tablet vertical ya lo ocultábamos; ahora también en PC, porque no
+  aportaba.
+### Fixed
+- **Botón "volver arriba" pedía dos toques en iOS Safari:** pegado al borde inferior caía en la franja
+  que Safari usa para revelar su barra de herramientas, así que el primer toque solo mostraba el chrome
+  (y empujaba el botón hacia arriba) y el segundo recién disparaba. Se lo aleja del borde **solo en
+  celular** (queda por encima de esa franja, sumando el `safe-area-inset`); tablet y PC quedan igual.
+
 ## [0.12.8] — 2026-08-10 — Botón "volver arriba", favicon para favoritos y fix del toast
 ### Added
 - **Botón "volver arriba":** aparece flotante y sutil (glass translúcido, centrado abajo) al scrollear
