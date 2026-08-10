@@ -200,36 +200,40 @@ img { display: block; }
    (≤640) O tablet en vertical (641–1024 + orientation:portrait). El JS lo espeja en isCompact(). */
 @media (max-width: 640px),
        (min-width: 641px) and (max-width: 1024px) and (orientation: portrait) {
-  /* en pantallas angostas no tiene sentido una fila fija solo para la marca: dejamos solo el logo
-     del dado, pegado a la izquierda del perfil (sacamos "Ludoteca" y el subtítulo).
-     .brand mantiene margin-right:auto (base) → el perfil/＋/⚙ se van pegados a la derecha. */
-  .brand > div:not(.die) { display: none; }
+  /* fila 1 = marca (izquierda) + perfil/＋/⚙ (derecha, por el margin-right:auto de base en .brand);
+     fila 2 = nav a lo ancho (order:3 la manda al final + basis 100% la baja a su propio renglón).
+     En CELULAR el nombre "Ludoteca" + subtítulo no entran → se ocultan (bloque ≤640). En TABLET
+     vertical hay ancho de sobra → la marca completa se queda (die + nombre + subtítulo). */
   /* sin el "(N)" el selector se achicaría: le fijamos el ancho de siempre para que la barra no cambie */
   #ownerSel { min-width: 126px; }
 
-  .nav { flex: 1 1 100%; gap: 6px; padding: 5px; }
+  /* apretar el ritmo vertical del topbar en compacto: la fila de la marca y la de la nav no necesitan
+     20px de separación (row-gap→12), y bajamos el padding-bottom del topbar para que el hueco
+     topbar→filtros no "duplique" espacio (ese hueco = padding-bottom del topbar + padding-top de
+     #main; ver más abajo). Objetivo: ~13px, el mismo gap que entre tarjetas. */
+  .topbar-inner { row-gap: 12px; padding-bottom: 7px; }
+
+  .nav { flex: 1 1 100%; order: 3; gap: 6px; padding: 5px; }
   /* iconos repartidos a lo ancho: cada botón se estira (flex:1) → targets grandes y separados */
   .nav button { flex: 1; padding: 11px 0; border-radius: 9px; display: grid; place-items: center; }
   .nav button .nav-tx { display: none; }
   .nav button .nav-ic { display: block; width: 22px; height: 22px; }
 
   .filters { gap: 8px 8px; padding: 12px; }
-  /* igualar las separaciones al gap entre tarjetas (13px): nav→filtros (rojo) y filtros→grilla
-     (verde). Con #main para ganar por especificidad sin depender del orden en el archivo. */
-  #main { padding-top: 13px; }
+  /* igualar las separaciones al gap entre tarjetas (~13px): nav→filtros y filtros→grilla. El hueco
+     nav→filtros es padding-bottom del topbar (7) + este padding-top (6) ≈ 13 (antes sumaba 14+13=27).
+     Con #main para ganar por especificidad sin depender del orden en el archivo. */
+  #main { padding-top: 6px; }
   #main .filters { margin-bottom: 13px; }
   /* buscador más alto y cómodo (celular y tablet vertical) */
   .search { flex: 1 1 100%; padding: 15px 14px; }
-  /* los tres botones toman su ancho natural y se reparten la fila (flex:1 auto): entran enteros
-     con su icono, sin cortar. Sacamos el ▾ (el panel se abre a la vista) para ganar ancho y que
-     "(N)" nunca los desborde ni los mande a otro renglón. */
-  .fbtns { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px; }
+  /* En CELULAR los botones se estiran para repartirse la fila (flex:1 auto) y, al activarse un filtro,
+     se les oculta el ▾ para ganar ancho (bloque ≤640). En TABLET vertical hay ancho de sobra → van a
+     ancho natural y conservan el ▾ (bloque «solo tablet» más abajo). */
+  .fbtns { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .fbtns > .chip { flex: 1 1 auto; min-width: 0; justify-content: center; white-space: nowrap;
     font-size: 13px; padding: 9px 8px; }
   .fbtns .chip.mech-btn { border-style: solid; }   /* sin el marco punteado (eso es del desktop) */
-  /* la flechita ▾ indica desplegar; si el grupo tiene filtro activo aparece "(N)" y se va la
-     flecha → nunca conviven, así el ancho no desborda ni se corta el texto */
-  .fbtns .chip.active .caret { display: none; }
   .fpanel { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 10px; padding: 2px 0; }
   .fpanel[hidden] { display: none; }
   .fpanel > select { flex: 1 1 44%; min-width: 0; max-width: none; }
@@ -246,6 +250,13 @@ img { display: block; }
    de estado/tabs a iconos, inputs a 16px (anti auto-zoom de iOS), Advisor compacto y el overlay que
    encaja en el área visible de Safari. En tablet la ficha va en 2 columnas y el Advisor como PC. ===== */
 @media (max-width: 640px) {
+  /* el nombre "Ludoteca" + subtítulo no entran en el ancho del teléfono → solo el dado. En tablet
+     vertical SÍ entran, por eso el ocultar-marca vive acá (≤640) y no en el bloque compartido. */
+  .brand > div:not(.die) { display: none; }
+  /* la flechita ▾ indica desplegar; si el grupo tiene filtro activo aparece "(N)" y se va la flecha
+     → nunca conviven, así el ancho no desborda ni se corta el texto. Solo celular: en tablet sobra
+     ancho y el ▾ se conserva junto al "(N)". */
+  .fbtns .chip.active .caret { display: none; }
   /* iOS hace AUTO-ZOOM al enfocar un input/textarea con font-size < 16px, y deja la app zoomeada
      (pasaba en el textarea del Advisor y en los formularios). 16px en TODOS los campos de texto del
      teléfono lo evita. Los <select> no zoomean (abren picker nativo) → no hace falta tocarlos y así
@@ -335,6 +346,20 @@ img { display: block; }
   }
   #modalRoot .modal { max-height: 100%; }              /* = 100dvh − safe-areas → siempre entra entero */
   #modalRoot .modal.sheet.data-hub { height: 100%; }   /* alto fijo del hub, pero acotado a lo visible */
+}
+
+/* ===== Solo TABLET VERTICAL (641–1024 + portrait): hay ancho de sobra, soltamos las optimizaciones
+   de celular en la barra de filtros —
+   · los 3 botones (Filtros/Tipo/Mecánicas) van a ancho natural, no estirados a toda la fila;
+   · "N juegos" + Limpiar suben a la MISMA fila de los botones, alineados a la derecha;
+   · el panel abierto pone los selects a 3 por fila (jugadores/duración/complejidad y, debajo,
+     diseñador/orden), en vez de las 2-por-fila anchas del celular (cajas menos grandes).
+   Va DESPUÉS del bloque compartido a propósito: gana por orden a igual especificidad. ===== */
+@media (min-width: 641px) and (max-width: 1024px) and (orientation: portrait) {
+  .fbtns > .chip { flex: 0 0 auto; }                             /* ancho natural: no estirar */
+  .fbtns .filters-tail { flex: 0 0 auto; margin-left: auto; }    /* contador + Limpiar a la derecha */
+  .fpanel > select { flex: 1 1 30%; }                            /* 3 selects por fila */
+  .fpanel > .flt-designer { flex: 1 1 30%; max-width: none; }    /* diseñador entra en la grilla (no full-width) */
 }
 
 /* ---------------- layout ---------------- */

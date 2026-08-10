@@ -399,11 +399,11 @@ async function loadOwners() {
   if (!S.owner) S.owner = (S.owners.find(o => o.is_me) || S.owners[0]).id;
   fillOwnerSel();
 }
-// En celular no mostramos el "(N)" de juegos en el selector de perfil (lo pidió el usuario);
-// el ancho de la barra se mantiene por min-width en CSS para que no se achique.
+// En celular y en tablet vertical no mostramos el "(N)" de juegos en el selector de perfil (lo pidió
+// el usuario); el ancho de la barra se mantiene por min-width en CSS para que no se achique.
 function fillOwnerSel() {
   const sel = $('#ownerSel'); if (!sel) return;
-  const mob = isMobile();
+  const mob = isCompact();
   sel.innerHTML = S.owners.map(o =>
     `<option value="${o.id}">${o.is_me ? '👤 ' : '👥 '}${esc(o.name)}${mob ? '' : ` (${o.own_count})`}</option>`).join('');
   sel.value = S.owner;
@@ -602,7 +602,10 @@ function renderFilters(kind) {
     wireAccordion([gFiltros, gTipo, mech]);   // un solo grupo abierto a la vez
     const tail = node('<div class="filters-tail"></div>');
     tail.append(clearBtn, countTag);
-    bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
+    // celular: Limpiar + "N juegos" van en su propia fila abajo (no sobra ancho). Tablet vertical:
+    // hay espacio → van en la MISMA fila de los botones, a la derecha (CSS: .fbtns .filters-tail).
+    if (isMobile()) bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
+    else { fbtns.append(tail); bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel); }
   } else {
     // desktop: todo inline, como siempre
     bar.append(players, time, weight, dsel, sort, dirBtn);
@@ -757,7 +760,10 @@ function renderBGGFilters() {
     const tail = node('<div class="filters-tail"></div>');
     if (dchip) tail.append(dchip);            // el chip de diseñador va al pie (no rompe las 3 columnas)
     tail.append(clearBtn, countTag);
-    bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
+    // celular: tail (diseñador + Limpiar + "N juegos") en fila propia abajo. Tablet vertical: en la
+    // misma fila de los botones, a la derecha (CSS: .fbtns .filters-tail).
+    if (isMobile()) bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
+    else { fbtns.append(tail); bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel); }
   } else {
     bar.append(players, time, weight, sort, dirBtn);
     const chips = node('<div class="type-chips"></div>');

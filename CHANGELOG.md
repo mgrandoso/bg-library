@@ -9,6 +9,25 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.12.1] — 2026-08-10 — Tablet vertical: topbar y filtros afinados al ancho disponible
+### Changed
+- **Topbar en tablet vertical:** vuelve la marca completa (dado + **Ludoteca** + subtítulo, que en el
+  teléfono no entra), el selector de perfil va **sin el "(N)"** y se alinea con ＋/⚙ a la derecha en la
+  **misma fila** que la marca; la nav (iconos) baja a una fila propia debajo. En celular sigue igual
+  (solo el dado, perfil sin "(N)").
+- **Barra de filtros en tablet vertical:** como sobra ancho, se sueltan las optimizaciones pensadas para
+  el teléfono — los tres botones (Filtros/Tipo/Mecánicas) van a **ancho natural** (no estirados), el
+  contador **"N juegos"** (+ *Limpiar*) sube a la **misma fila** de los botones a la derecha, y los
+  botones **conservan el ▾** aunque muestren el "(N)". El panel abierto pone los selects a **3 por fila**
+  (Jugadores/Duración/Complejidad y, debajo, Diseñador/Orden) en vez de las 2-por-fila del celular.
+- El topbar/filtros van a ancho natural solo en tablet (todo acotado a `(min-width:641px) and
+  (max-width:1024px) and portrait`); el resto de la barra de filtros sigue igual en celular.
+### Fixed
+- **Espaciado vertical del topbar en compacto (celular y tablet):** el hueco entre la nav y la barra de
+  filtros "duplicaba" espacio (padding-bottom del topbar 14px + padding-top de `#main` 13px ≈ 27px) y la
+  separación marca↔nav era de 20px en tablet. Normalizado al ritmo del gap entre tarjetas (~13px):
+  marca→nav 12px, nav→filtros ~13px, filtros→grilla 13px.
+
 ## [0.12.0] — 2026-08-10 — Modo tablet en vertical (chrome compacto como celular)
 ### Added
 - **La tablet en vertical (portrait) ahora usa el "layout general" del celular:** la nav pasa a
