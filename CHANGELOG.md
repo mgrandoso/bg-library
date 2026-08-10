@@ -9,6 +9,17 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.11.1] — 2026-08-10 — Scroll por vista + prefetch de portadas
+### Fixed
+- Al cambiar de tab (Biblioteca/Wishlist/BGG) el **scroll ya no se comparte**: cada vista arranca
+  arriba, con reset **instantáneo** (sin la animación del `scroll-behavior:smooth`). Los filtros se
+  siguen compartiendo; el scroll no. (Era un comportamiento viejo del SPA que quedó visible al
+  compartir filtros en 0.9.0.)
+### Performance
+- **Prefetch de portadas en segundo plano**: tras el paint inicial (solo lo visible), en tiempo
+  ocioso (`requestIdleCallback`) se calienta el caché del resto de las portadas → al scrollear ya
+  están descargadas y no hay *pop-in*. Mantiene el arranque rápido del lazy-load de 0.11.0.
+
 ## [0.11.0] — 2026-08-10 — Advisor: fix de recomendación + trazabilidad LLM + portadas lazy
 ### Fixed
 - **Recomendación con pitch de otro juego** (modo agente): el modelo a veces desalineaba el pitch

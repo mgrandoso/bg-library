@@ -202,6 +202,9 @@ function bindTop() {
     S.view = b.dataset.view;
     $$('#nav button').forEach(x => x.classList.toggle('active', x === b));
     render();
+    // cada vista arranca arriba: se comparten los filtros, NO el scroll. 'instant' porque el <html>
+    // tiene scroll-behavior:smooth y no queremos ver la animación de subida al cambiar de tab.
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   });
   $('#btnTheme').addEventListener('click', () => {
     const h = document.documentElement;
@@ -871,6 +874,32 @@ function lazyCover(cover) {
     }, { rootMargin: `${margin}px 0px` });
   }
   coverObserver.observe(cover);
+  scheduleCoverPrefetch();   // opción A: además, precargar el resto en segundo plano (idle)
+}
+
+// Prefetch en segundo plano: tras el primer paint (rápido, solo lo visible), cuando el navegador
+// está OCIOSO va calentando el caché de las portadas restantes con new Image(). Así, para cuando
+// scrolleás, ya están descargadas y el observer solo las "muestra" (sin pop-in). Debounced: se
+// dispara una vez por lote de tarjetas. Va de a poco para no pelear con el scroll/paint.
+let _prefetchTimer = null;
+function scheduleCoverPrefetch() {
+  if (_prefetchTimer) return;
+  _prefetchTimer = setTimeout(() => {
+    _prefetchTimer = null;
+    const pending = [...document.querySelectorAll('.cover[data-bg]')];
+    let i = 0;
+    const ric = window.requestIdleCallback || (cb => setTimeout(() => cb({ timeRemaining: () => 8 }), 200));
+    const pump = (dl) => {
+      let n = 0;
+      while (i < pending.length && dl.timeRemaining() > 4 && n < 20) {
+        const url = pending[i++].dataset.bg;
+        if (url) { const im = new Image(); im.src = url; }   // calienta caché; el observer la mostrará
+        n++;
+      }
+      if (i < pending.length) ric(pump);
+    };
+    ric(pump);
+  }, 400);   // esperar a que el paint inicial y el scroll se asienten
 }
 
 function card(g) {
