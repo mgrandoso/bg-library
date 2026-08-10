@@ -75,8 +75,10 @@ const S = {
   appearance: 'classic',
 };
 /* estado del browse de BGG (paginado, persiste al navegar) */
-const BGGV = { games: [], page: 0, q: '', total: 0, hasMore: false, loading: false, owner: 0,
-  types: new Set(), mechanics: new Set(), players: 0, time: '', weight: '', sort: 'rank', sortDir: 1 };
+// BGG guarda SOLO el estado de navegación (paginado/carga). Los filtros y el orden viven en
+// S.filters —único para las tres vistas—; `sig` recuerda con qué filtros se cargó lo que hay en
+// pantalla, para saber si hay que recargar al volver a BGG tras tocar filtros en otra vista.
+const BGGV = { games: [], page: 0, total: 0, hasMore: false, loading: false, owner: 0, sig: null };
 
 /* ================= arranque ================= */
 init();
@@ -487,16 +489,15 @@ function renderFilters(kind) {
   weight.addEventListener('change', e => { f.weight = e.target.value; refreshGrid(kind); });
   bar.append(weight);
 
-  // designers presentes
+  // designers presentes en esta vista; si hay un diseñador activo que no está (p. ej. vino de un
+  // click en BGG), lo agrego igual para que el combo lo muestre seleccionado y se pueda quitar.
   const designers = [...new Set(S.games.filter(g => kind === 'own' ? g.own : g.wishlist).flatMap(g => (g.designers || []).map(d => d.name)))].sort();
+  if (f.designer && !designers.includes(f.designer)) designers.unshift(f.designer);
   const dsel = node(`<select class="flt-designer" title="Diseñador"><option value="">Diseñador</option>${designers.map(d => `<option ${f.designer === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>`);
   dsel.addEventListener('change', e => { f.designer = e.target.value; refreshGrid(kind); });
   bar.append(dsel);
 
-  const sortOpts = kind === 'wishlist'
-    ? [['rank', 'Ranking BGG'], ['prio', 'Prioridad'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['year', 'Año'], ['name', 'Nombre']]
-    : [['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['time', 'Duración'], ['year', 'Año'], ['name', 'Nombre']];
-  if (f.players) sortOpts.unshift(['fit', `Mejor para ${f.players} jug.`]);   // ítem 9: solo con N elegido
+  const sortOpts = sortOptsFor(kind === 'wishlist' ? 'wishlist' : 'library', f);
   const validSorts = sortOpts.map(o => o[0]);
   if (!validSorts.includes(f.sort)) f.sort = validSorts[0];        // criterio no válido para esta vista -> default
   const sort = node(`<select title="Ordenar por">${sortOpts.map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>Orden: ${l}</option>`).join('')}</select>`);
@@ -552,25 +553,40 @@ function refreshGrid(kind) {
 }
 
 /* ================= BGG (browse del top, paginado + filtros server-side) ================= */
+// Opciones de orden por vista: 'prio' solo en Wishlist; 'fit' aparece al elegir N jugadores.
+// El resto es común a las tres vistas (misma semántica en cliente y servidor) → orden consistente.
+function sortOptsFor(view, f) {
+  const opts = view === 'wishlist'
+    ? [['rank', 'Ranking BGG'], ['prio', 'Prioridad'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['time', 'Duración'], ['year', 'Año'], ['name', 'Nombre']]
+    : [['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['time', 'Duración'], ['year', 'Año'], ['name', 'Nombre']];
+  if (f.players) opts.unshift(['fit', `Mejor para ${f.players} jug.`]);
+  return opts;
+}
+// firma de los filtros compartidos: si cambia mientras estás en otra vista, BGG recarga al volver.
+function bggFilterSig() {
+  const f = S.filters;
+  return JSON.stringify([f.q, [...f.types].sort(), [...f.mechanics].sort(),
+    f.players, f.time, f.weight, f.designer, f.sort, f.sortDir]);
+}
 function bggParams() {
+  const f = S.filters;
   const p = new URLSearchParams({
-    owner: S.owner, page: BGGV.page, per: 100, q: BGGV.q, sort: BGGV.sort, dir: BGGV.sortDir,
+    owner: S.owner, page: BGGV.page, per: 100, q: f.q, sort: f.sort, dir: f.sortDir,
   });
-  if (BGGV.types.size) p.set('types', [...BGGV.types].join(','));
-  if (BGGV.mechanics.size) p.set('mechanics', [...BGGV.mechanics].join('~'));  // '~': los nombres traen comas
-  if (BGGV.players) p.set('players', BGGV.players);
-  if (BGGV.time) p.set('time', BGGV.time);
-  if (BGGV.weight) p.set('weight', BGGV.weight);
+  if (f.types.size) p.set('types', [...f.types].join(','));
+  if (f.mechanics.size) p.set('mechanics', [...f.mechanics].join('~'));  // '~': los nombres traen comas
+  if (f.players) p.set('players', f.players);
+  if (f.time) p.set('time', f.time);
+  if (f.weight) p.set('weight', f.weight);
+  if (f.designer) p.set('designer', f.designer);
   return p.toString();
 }
-function bggHasActiveFilters() {
-  return !!(BGGV.q || BGGV.types.size || BGGV.mechanics.size || BGGV.players || BGGV.time || BGGV.weight);
-}
+function bggHasActiveFilters() { return hasActiveFilters(); }   // mismo S.filters que Biblioteca
 
 async function bggFetch(reset) {
   if (BGGV.loading) return [];
   BGGV.loading = true;
-  if (reset) { BGGV.page = 0; BGGV.games = []; }
+  if (reset) { BGGV.page = 0; BGGV.games = []; BGGV.sig = bggFilterSig(); }
   let added = [];
   try {
     const d = await api('/bgg?' + bggParams());
@@ -591,62 +607,68 @@ async function bggReload() {
 
 let bggSearchT;
 function renderBGGFilters() {
+  const f = S.filters;   // BGG comparte el mismo estado de filtros/orden que Biblioteca y Wishlist
   const bar = node('<div class="filters"></div>');
 
   const search = node(`<div class="search">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
-    <input id="bggSearch" placeholder="Buscar en el top de BGG…" value="${esc(BGGV.q)}">
+    <input id="bggSearch" placeholder="Buscar en el top de BGG…" value="${esc(f.q)}">
   </div>`);
   search.querySelector('input').addEventListener('input', e => {
-    BGGV.q = e.target.value; clearTimeout(bggSearchT); bggSearchT = setTimeout(bggReload, 350);
+    f.q = e.target.value; clearTimeout(bggSearchT); bggSearchT = setTimeout(bggReload, 350);
   });
   bar.append(search);
 
-  const players = node(`<select title="Jugadores"><option value="0">Jugadores</option>${[1, 2, 3, 4, 5, 6, 7, 8].map(n => `<option value="${n}" ${BGGV.players === n ? 'selected' : ''}>${n} jugador${n > 1 ? 'es' : ''}</option>`).join('')}</select>`);
+  const players = node(`<select title="Jugadores"><option value="0">Jugadores</option>${[1, 2, 3, 4, 5, 6, 7, 8].map(n => `<option value="${n}" ${f.players === n ? 'selected' : ''}>${n} jugador${n > 1 ? 'es' : ''}</option>`).join('')}</select>`);
   players.addEventListener('change', e => {
-    BGGV.players = +e.target.value;
+    f.players = +e.target.value;
     // ítem 9: elegir cantidad activa el orden por ajuste; quitarla revierte a ranking
-    if (BGGV.players) BGGV.sort = 'fit';
-    else if (BGGV.sort === 'fit') BGGV.sort = 'rank';
-    BGGV.games = []; BGGV.page = 0;
+    if (f.players) f.sort = 'fit';
+    else if (f.sort === 'fit') f.sort = 'rank';
     renderBGG($('#main'));   // rehace la barra (muestra/oculta "fit") y recarga server-side
   });
   bar.append(players);
 
-  const time = node(`<select title="Duración"><option value="">Duración</option><option value="short" ${BGGV.time === 'short' ? 'selected' : ''}>Corto (&lt;30m)</option><option value="mid" ${BGGV.time === 'mid' ? 'selected' : ''}>Medio (30–89m)</option><option value="long" ${BGGV.time === 'long' ? 'selected' : ''}>Largo (90m+)</option></select>`);
-  time.addEventListener('change', e => { BGGV.time = e.target.value; bggReload(); });
+  const time = node(`<select title="Duración"><option value="">Duración</option><option value="short" ${f.time === 'short' ? 'selected' : ''}>Corto (&lt;30m)</option><option value="mid" ${f.time === 'mid' ? 'selected' : ''}>Medio (30–89m)</option><option value="long" ${f.time === 'long' ? 'selected' : ''}>Largo (90m+)</option></select>`);
+  time.addEventListener('change', e => { f.time = e.target.value; bggReload(); });
   bar.append(time);
 
-  const weight = node(`<select title="Complejidad"><option value="">Complejidad</option><option value="light" ${BGGV.weight === 'light' ? 'selected' : ''}>Liviana</option><option value="mid" ${BGGV.weight === 'mid' ? 'selected' : ''}>Media</option><option value="heavy" ${BGGV.weight === 'heavy' ? 'selected' : ''}>Pesada</option></select>`);
-  weight.addEventListener('change', e => { BGGV.weight = e.target.value; bggReload(); });
+  const weight = node(`<select title="Complejidad"><option value="">Complejidad</option><option value="light" ${f.weight === 'light' ? 'selected' : ''}>Liviana</option><option value="mid" ${f.weight === 'mid' ? 'selected' : ''}>Media</option><option value="heavy" ${f.weight === 'heavy' ? 'selected' : ''}>Pesada</option></select>`);
+  weight.addEventListener('change', e => { f.weight = e.target.value; bggReload(); });
   bar.append(weight);
 
-  const sortOpts = [['rank', 'Ranking BGG'], ['rating', 'Rating'], ['weight', 'Complejidad'], ['time', 'Duración'], ['year', 'Año'], ['name', 'Nombre']];
-  if (BGGV.players) sortOpts.unshift(['fit', `Mejor para ${BGGV.players} jug.`]);   // ítem 9
-  const sort = node(`<select title="Ordenar por">${sortOpts.map(([v, l]) => `<option value="${v}" ${BGGV.sort === v ? 'selected' : ''}>Orden: ${l}</option>`).join('')}</select>`);
-  sort.addEventListener('change', e => { BGGV.sort = e.target.value; bggReload(); });
+  const sortOpts = sortOptsFor('bgg', f);
+  const sort = node(`<select title="Ordenar por">${sortOpts.map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>Orden: ${l}</option>`).join('')}</select>`);
+  sort.addEventListener('change', e => { f.sort = e.target.value; bggReload(); });
   bar.append(sort);
 
-  const dirBtn = node(`<button class="mini-select sortdir ${BGGV.sortDir === -1 ? 'flipped' : ''}" title="Invertir orden">${BGGV.sortDir === 1 ? '↓' : '↑'}</button>`);
+  const dirBtn = node(`<button class="mini-select sortdir ${f.sortDir === -1 ? 'flipped' : ''}" title="Invertir orden">${f.sortDir === 1 ? '↓' : '↑'}</button>`);
   dirBtn.addEventListener('click', () => {
-    BGGV.sortDir = BGGV.sortDir === 1 ? -1 : 1;
-    dirBtn.textContent = BGGV.sortDir === 1 ? '↓' : '↑';
-    dirBtn.classList.toggle('flipped', BGGV.sortDir === -1);
+    f.sortDir = f.sortDir === 1 ? -1 : 1;
+    dirBtn.textContent = f.sortDir === 1 ? '↓' : '↑';
+    dirBtn.classList.toggle('flipped', f.sortDir === -1);
     bggReload();
   });
   bar.append(dirBtn);
 
   const chips = node('<div class="type-chips"></div>');
   Object.keys(SUBDOMAIN).forEach(s => {
-    const c = node(`<button class="chip ${BGGV.types.has(s) ? 'active' : ''}" style="--c:${typeColor(s)}"><span class="dot"></span>${typeEs(s)}</button>`);
-    c.addEventListener('click', () => { BGGV.types.has(s) ? BGGV.types.delete(s) : BGGV.types.add(s); c.classList.toggle('active'); bggReload(); });
+    const c = node(`<button class="chip ${f.types.has(s) ? 'active' : ''}" style="--c:${typeColor(s)}"><span class="dot"></span>${typeEs(s)}</button>`);
+    c.addEventListener('click', () => { f.types.has(s) ? f.types.delete(s) : f.types.add(s); c.classList.toggle('active'); bggReload(); });
     chips.append(c);
   });
-  const mech = mechFacet(BGGV.mechanics, bggReload);   // grupo Mecánicas (colapsable), server-side
+  const mech = mechFacet(f.mechanics, bggReload);   // grupo Mecánicas (colapsable), server-side
   chips.append(mech.button);
+  // BGG no tiene combo de diseñador (serían ~2800 opciones): el filtro se activa al clickear un
+  // diseñador en una ficha. Si está activo, lo mostramos como chip removible.
+  if (f.designer) {
+    const dchip = node(`<button class="chip active" title="Quitar filtro de diseñador">🖋 ${esc(f.designer)} ✕</button>`);
+    dchip.addEventListener('click', () => { f.designer = ''; renderBGG($('#main')); });
+    chips.append(dchip);
+  }
   const clearBtn = node('<button class="chip clear-filters" id="bggClear">✕ Limpiar filtros</button>');
   clearBtn.addEventListener('click', () => {
-    Object.assign(BGGV, { q: '', types: new Set(), mechanics: new Set(), players: 0, time: '', weight: '', sort: 'rank', games: [], page: 0 });
+    S.filters = { q: '', types: new Set(), mechanics: new Set(), players: 0, time: '', weight: '', designer: '', sort: f.sort === 'fit' ? 'rank' : f.sort, sortDir: f.sortDir };
     renderBGG($('#main'));   // reconstruye la barra con los controles reseteados y recarga
   });
   clearBtn.style.display = bggHasActiveFilters() ? 'inline-flex' : 'none';
@@ -658,14 +680,18 @@ function renderBGGFilters() {
 }
 
 async function renderBGG(m) {
+  // 'prio' es exclusivo de Wishlist: si venías con ese orden, normalizá a ranking para BGG
+  const valid = sortOptsFor('bgg', S.filters).map(o => o[0]);
+  if (!valid.includes(S.filters.sort)) S.filters.sort = valid[0];
+
   const v = node('<div class="view"></div>');
   v.append(renderBGGFilters());
   v.append(node('<div class="grid" id="bggGrid"></div>'));
   v.append(node('<div id="bggMore" style="text-align:center;margin:20px 0"></div>'));
   m.innerHTML = ''; m.append(v);
 
-  // primera carga (o si cambió de perfil / se limpiaron filtros); si ya hay datos, se mantienen
-  if (BGGV.owner !== S.owner || (!BGGV.games.length && !BGGV.loading)) {
+  // recarga si: cambió el perfil, cambiaron los filtros desde otra vista (sig), o no hay datos aún
+  if (BGGV.owner !== S.owner || BGGV.sig !== bggFilterSig() || (!BGGV.games.length && !BGGV.loading)) {
     $('#bggGrid').innerHTML = '<div class="spinner"></div>';
     await bggFetch(true);
   }
@@ -736,7 +762,7 @@ function stateBadge(g) {
 }
 function card(g) {
   const t = (g.subdomains || [])[0];
-  const players = S.view === 'bgg' ? BGGV.players : S.filters.players;
+  const players = S.filters.players;
   const c = node(`
     <div class="card" data-oid="${esc(g.objectid)}">
       <div class="cover" style="background-image:url('${esc(safeImg(g.image || g.thumb))}')">
@@ -849,14 +875,21 @@ function openDetail(g, opts = {}) {
     <div class="state-bar"></div>
   </div>`);
 
-  // click en diseñador -> filtrar (deshabilitado en solo lectura: no navega a la Biblioteca)
+  // click en diseñador -> filtra por ese diseñador SIN salir de la vista actual (Biblioteca,
+  // Wishlist o BGG). Deshabilitado en solo lectura (advisor). Desde una ficha suelta (alta) cae
+  // en Biblioteca. Como el filtro es único (S.filters), queda activo también al cambiar de tab.
   if (opts.readonly) {
     inner.querySelectorAll('#desigChips .tagchip').forEach(ch => ch.classList.remove('click'));
   } else {
     inner.querySelectorAll('#desigChips .tagchip').forEach(ch => ch.addEventListener('click', () => {
-      S.filters.designer = ch.dataset.d; S.view = 'library';
-      $$('#nav button').forEach(x => x.classList.toggle('active', x.dataset.view === 'library'));
-      ov.remove(); render();
+      S.filters.designer = ch.dataset.d;
+      ov.remove();
+      if (S.view === 'bgg') { renderBGG($('#main')); return; }
+      if (S.view !== 'library' && S.view !== 'wishlist') {
+        S.view = 'library';
+        $$('#nav button').forEach(x => x.classList.toggle('active', x.dataset.view === 'library'));
+      }
+      render();
     }));
   }
 
@@ -1804,6 +1837,8 @@ function openData(tab = 'perfiles') {
           </div>
           <p class="imp-help-note">Se baja un archivo <code>collection.csv</code>; después subilo acá abajo. El link es:<br>
             <code id="bggUrl">…&amp;username=<b>TU_USUARIO</b>&amp;all=1</code></p>
+          <p class="imp-help-note">💡 A veces la <b>primera vez no baja nada</b>: BGG genera el export y recién en el
+            <b>segundo acceso al mismo link</b> te lo descarga (te avisa además con una notificación en tu perfil, con el mismo link).</p>
         </div>
       </details>
       <div class="field">

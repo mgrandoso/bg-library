@@ -185,6 +185,7 @@ def _fit_case(n):
 def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = "",
                types: str = "", mechanics: str = "", players: int = 0,
                time_f: str = Query("", alias="time"), weight: str = "",
+               designer: str = "",
                sort: str = "rank", direction: int = Query(1, alias="dir")):
     """Browse del top de BGG (por rank) con tu estado (own/wishlist) por juego.
     Filtros y orden server-side (mismos criterios que la Biblioteca). Paginado."""
@@ -219,6 +220,11 @@ def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = "",
         lo, hi = BGG_WEIGHT[weight]
         where.append("g.weight >= ? AND g.weight < ?")
         params += [lo, hi]
+    if designer.strip():
+        # designers se guarda como JSON [{"name": "..."}]; matcheo el nombre entrecomillado
+        # (las comillas evitan falsos positivos por substring, p. ej. "Knizia" vs "Reiner Knizia")
+        where.append("g.designers LIKE ?")
+        params.append(f'%"{designer.strip()}"%')
     where_sql = " AND ".join(where)
 
     if sort == "fit" and players:

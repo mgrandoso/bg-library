@@ -9,6 +9,21 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-08-10 — Filtros compartidos + filtro por diseñador en BGG
+### Added
+- **Filtro por diseñador en BGG** (server-side): no hay combo —serían ~2.800 opciones en el
+  top-5000— sino que se activa **clickeando un diseñador en cualquier ficha**. Aparece como chip
+  removible en la barra. Match por nombre entrecomillado sobre el JSON `designers` (sin falsos
+  positivos por substring).
+### Changed
+- **Un solo estado de filtros y orden** para Biblioteca, Wishlist y BGG (`S.filters`): lo que
+  aplicás en una vista **se mantiene en las tres** hasta que toques *Limpiar filtros*. El click en
+  un diseñador ahora **respeta la vista actual** (desde una ficha de BGG filtra BGG; desde tu
+  colección/wishlist, esas) en lugar de saltar siempre a la Biblioteca.
+- **Orden normalizado y consistente** entre vistas: *Prioridad* queda exclusivo de Wishlist (si
+  cambiás de tab con ese orden, cae a *Ranking BGG*); se agregó *Duración* a Wishlist. El resto de
+  los criterios comparten semántica en cliente y servidor.
+
 ## [0.8.1] — 2026-08-09 — Ajuste responsive (iPad)
 ### Fixed
 - En **Biblioteca/Wishlist sobre iPad**, el combo **Diseñador** se ensanchaba con su opción más larga
