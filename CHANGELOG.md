@@ -9,6 +9,16 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.11.3] — 2026-08-10 — Ficha en celular: barra dinámica de Safari
+### Fixed
+- **La ficha (modal) se abría fuera de vista en el iPhone**: al tocar una tarjeta con la barra de
+  Safari expandida (estás arriba del todo), la ✕ de arriba y la barra *tengo/quiero* de abajo
+  quedaban tapadas, y había que cerrar, scrollear un poco y reabrir para verla bien. Causa: iOS mide
+  `vh` e `inset:0` contra el viewport **grande** (barra colapsada) y con `viewport-fit=cover` el
+  contenido se mete bajo el chrome del navegador. Ahora, **solo en celular**, la caja del overlay usa
+  **`dvh`** (alto dinámico que sigue el estado real de la barra) + **`env(safe-area-inset-*)`** en el
+  padding (no se mete bajo Dynamic Island ni toolbar) → el modal encaja siempre en el área visible.
+
 ## [0.11.2] — 2026-08-10 — "Ver más" del Advisor solo en celular
 ### Changed
 - El **"ver más / ver menos"** del pitch de las recomendaciones del Advisor ahora aplica **solo en

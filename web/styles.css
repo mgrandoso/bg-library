@@ -285,6 +285,30 @@ img { display: block; }
   .modal .tabs { gap: 6px; padding: 5px; }
   .modal .tabs button { padding: 11px 0; font-size: 19px; }
   .modal .tabs .tab-tx { display: none; }
+
+  /* ---- ficha/sheet en celular: encajar en el área REALMENTE visible de Safari ----
+     iOS mide `vh` e `inset:0` contra el viewport GRANDE (como si la barra estuviera colapsada).
+     Al centrar con la barra expandida, el modal se salía de vista: la ✕ arriba y la barra
+     tengo/quiero abajo quedaban tapadas, y había que scrollear la página para verlo bien.
+     Además, con `viewport-fit=cover` (index.html) el tope se mete bajo el chrome del navegador.
+     Fix: la caja del overlay usa `dvh` (alto dinámico que SIGUE el estado real de la barra) y
+     `env(safe-area-inset-*)` en el padding (no se mete bajo notch/Dynamic Island ni toolbar).
+     Con la caja midiendo lo visible de verdad, el centrado ya funciona bien. WebKit-only: no se
+     puede verificar en la preview Chromium, se valida en el iPhone post-commit.
+     OJO: prefijado con `#modalRoot` (donde se cuelgan todos los overlays) para GANAR en
+     especificidad — las reglas base `.overlay`/`.modal` viven MÁS ABAJO en el archivo y, a igual
+     especificidad, ganaría la última (mordió antes). El id lo resuelve sin depender del orden. */
+  #modalRoot .overlay {
+    bottom: auto;             /* libero el bottom del inset:0 base para que mande `height` */
+    height: 100vh;            /* fallback iOS < 15.4 (sin dvh) */
+    height: 100dvh;           /* alto dinámico: sube/baja con la barra de Safari */
+    padding:
+      calc(env(safe-area-inset-top) + 8px)
+      10px
+      calc(env(safe-area-inset-bottom) + 8px);
+  }
+  #modalRoot .modal { max-height: 100%; }              /* = 100dvh − safe-areas → siempre entra entero */
+  #modalRoot .modal.sheet.data-hub { height: 100%; }   /* alto fijo del hub, pero acotado a lo visible */
 }
 
 /* ---------------- layout ---------------- */
