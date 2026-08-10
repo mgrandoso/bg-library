@@ -930,8 +930,10 @@ select, .mini-select {
   .mode-card { max-width: none; }
   /* En iOS Safari, pegada al borde la flechita caía en la franja que revela la barra inferior:
      el primer tap solo mostraba el chrome (y la empujaba arriba), el segundo recién disparaba.
-     La alejamos del borde para que el tap llegue directo al botón. */
-  .to-top { bottom: calc(76px + env(safe-area-inset-bottom)); }
+     Ojo: con la barra colapsada (el estado en que aparece este botón) env(safe-area-inset-bottom)
+     devuelve 0, así que el número que manda es el fijo. Esa barra ocupa ~40-50px; 12px caía adentro,
+     76px la despejaba de sobra. 52px es el punto medio (no hay medida oficial, se calibra a ojo). */
+  .to-top { bottom: calc(env(safe-area-inset-bottom) + 52px); }
 }
 
 /* expansiones (ítem 3) */
