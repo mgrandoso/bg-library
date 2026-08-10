@@ -9,6 +9,12 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.11.5] — 2026-08-10 — Ajuste del margen inferior de la ficha en celular
+### Changed
+- El margen **inferior** de la ficha en celular tenía +16px fijos que, sumados al `safe-area` del
+  home-bar (~34px), dejaban demasiado aire abajo. Bajado a **+6px** (arriba se mantiene en 16px, donde
+  en Safari el `safe-area-inset-top` suele ser 0). La ✕ y la barra *tengo/quiero* siguen despejadas.
+
 ## [0.11.4] — 2026-08-10 — Sin auto-zoom de iOS al enfocar campos de texto
 ### Fixed
 - **iOS zoomeaba (y dejaba la app zoomeada) al tocar un campo de texto** — se notaba en el textarea
