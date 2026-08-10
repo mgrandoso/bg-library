@@ -377,7 +377,14 @@ img { display: block; }
     padding: calc(env(safe-area-inset-top) + 22px) 22px calc(env(safe-area-inset-bottom) + 22px);
   }
   #modalRoot .modal { max-height: 100%; }   /* = alto visible − padding → márgenes parejos */
-}
+
+  /* Panel: en las tarjetas angostas de distribución (span 4: "Por tipo/complejidad/edad") la etiqueta
+     fija de 130px dejaba la barra en ~16px → no se notaba la diferencia entre valores. La achico a 96px
+     (entra la etiqueta más larga de esas tarjetas, "Jóvenes (9–12)") → la barra casi triplica su ancho.
+     Acotado por el span inline para NO tocar la tarjeta de Diseñadores (span 5, nombres largos tipo
+     "Phil Walker-Harding" que se cortarían). 104px = "Jóvenes (9–12)" (~96px) + margen para que no la
+     recorte el ellipsis; la barra queda igual bastante más ancha que los 130px originales. */
+  #main .panel[style*="span 4"] .hbar-lbl { width: 104px; }
 
 /* ---------------- layout ---------------- */
 main { max-width: var(--maxw); margin: 0 auto; padding: 26px 22px 80px; }

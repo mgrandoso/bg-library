@@ -9,6 +9,14 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.12.3] — 2026-08-10 — Tablet vertical: barras del Panel más legibles
+### Changed
+- **Panel en tablet vertical:** en las tarjetas angostas de distribución ("Por tipo de juego / Por
+  complejidad / Por edad recomendada") la etiqueta fija de 130px dejaba la barra en ~16px y no se
+  distinguían las proporciones. Se acota la etiqueta a **104px** (entra la más larga, "Jóvenes (9–12)",
+  con margen para que no la recorte el ellipsis) → la barra pasa a **~42px** (casi el triple). No toca la
+  tarjeta "Diseñadores más presentes" (más ancha, con nombres largos como "Phil Walker-Harding").
+
 ## [0.12.2] — 2026-08-10 — Tablet vertical: pulidos de filtros y ficha
 ### Changed
 - **Botones de filtro (Filtros/Tipo/Mecánicas) en tablet vertical** ahora se reparten en **partes
