@@ -87,6 +87,7 @@ const mqMobile = window.matchMedia('(max-width: 640px)');
 function isMobile() { return mqMobile.matches; }
 mqMobile.addEventListener('change', () => {
   if (typeof fillOwnerSel === 'function' && S.owners) fillOwnerSel();   // "(N)" del perfil según plataforma
+  if (coverObserver) { coverObserver.disconnect(); coverObserver = null; }  // recalcula el margen (2× viewport)
   if (typeof render === 'function') render();
 });
 // contador de filtros activos entre los selects (jugadores/duración/complejidad/diseñador);
@@ -842,12 +843,42 @@ function stateBadge(g) {
   if (g.wishlist) return '<span class="statebadge wish" title="En mi wishlist">⭐</span>';
   return '';
 }
+// Lazy-load de portadas: cada .cover arranca solo con su color placeholder (el box ya tiene tamaño
+// fijo por aspect-ratio, así que NO hay salto de layout) y la imagen se asigna recién cuando la
+// tarjeta se acerca al viewport. Antes se disparaban las ~154 imágenes externas de golpe al entrar
+// a una vista → en celular hacía que "tarde en asentarse". Compartido por Biblioteca/Wishlist/BGG.
+let coverObserver = null;
+function lazyCover(cover) {
+  const url = cover && cover.dataset.bg;
+  if (!url) return;
+  if (!('IntersectionObserver' in window)) {   // fallback: cargar ya
+    cover.style.backgroundImage = `url('${url}')`; cover.removeAttribute('data-bg'); return;
+  }
+  if (!coverObserver) {
+    // Preload deslizante proporcional a lo que se ve: el margen es 2× la altura del viewport, así
+    // si el "bloque 1" es lo visible, quedan cargados también el 2 y el 3 (≈3× lo visible). Como el
+    // IntersectionObserver reevalúa al scrollear, cuando bajás al bloque 2 entra el 4, y así: siempre
+    // vas con ~2 bloques cargados por delante, nunca ves un hueco en algo que está en pantalla.
+    const margin = Math.round((window.innerHeight || 800) * 2);
+    coverObserver = new IntersectionObserver((entries, obs) => {
+      for (const en of entries) {
+        if (!en.isIntersecting) continue;
+        const c = en.target;
+        c.style.backgroundImage = `url('${c.dataset.bg}')`;
+        c.removeAttribute('data-bg');
+        obs.unobserve(c);
+      }
+    }, { rootMargin: `${margin}px 0px` });
+  }
+  coverObserver.observe(cover);
+}
+
 function card(g) {
   const t = (g.subdomains || [])[0];
   const players = S.filters.players;
   const c = node(`
     <div class="card" data-oid="${esc(g.objectid)}">
-      <div class="cover" style="background-image:url('${esc(safeImg(g.image || g.thumb))}')">
+      <div class="cover" data-bg="${esc(safeImg(g.image || g.thumb))}">
         ${g.rank_overall ? `<span class="rankbadge">#${g.rank_overall}</span>` : ''}
         ${stateBadge(g)}
         ${players ? `<div class="fit-overlay">${playerFit(g, players)}</div>` : ''}
@@ -864,6 +895,7 @@ function card(g) {
         </div>
       </div>
     </div>`);
+  lazyCover(c.querySelector('.cover'));
   c.addEventListener('click', () => openDetail(g));
   return c;
 }

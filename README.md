@@ -138,6 +138,14 @@ guarda en el **llavero de credenciales del sistema** (Windows Credential Manager
 vía `keyring`), no en texto plano; si no hay keyring disponible cae a `config.json` local. Sin key,
 el Advisor funciona igual en modo determinístico (el agente queda deshabilitado hasta configurarla).
 
+**Trazabilidad del LLM (observabilidad).** Como el razonamiento del agente es una caja negra,
+cada llamada a Gemini deja una línea JSON en `advisor_trace.jsonl` (mismo directorio que la DB) con
+el prompt, la respuesta cruda, los candidatos, los picks del modelo vs. los finales, los *warnings*
+de reasignación y los tiempos. Sirve para diagnosticar con el dato y no suponiendo. Retención: por
+antigüedad y cantidad (por defecto 30 días / 100 llamadas), podada en cada escritura. Variables:
+`BG_ADVISOR_TRACE=0` la apaga · `BG_ADVISOR_TRACE_DAYS` / `BG_ADVISOR_TRACE_MAX` ajustan la
+retención · `BG_TRACE_PATH` cambia la ruta. Limpieza manual/cron: `python server/prune_traces.py`.
+
 ## Catálogo BGG pre-cargado (top-5000)
 
 El repo ya viene con **`data/bgg_top.json`**: el **top-5000 de BGG por ranking, pre-seedeado a agosto 2026**

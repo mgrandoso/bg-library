@@ -9,6 +9,29 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-08-10 — Advisor: fix de recomendación + trazabilidad LLM + portadas lazy
+### Fixed
+- **Recomendación con pitch de otro juego** (modo agente): el modelo a veces desalineaba el pitch
+  con el `objectid` equivocado (p. ej. la descripción de *6 nimmt!/Take Five* pegada a *Scotland
+  Yard*). Ahora al candidato se lo referencia por un **índice corto `#N`** en vez del objectid de
+  BGG (copiar un número chico es mucho menos propenso a error), el modelo devuelve también el
+  `name`, y si no coincide con el juego del `#N` pero sí con otro candidato, **se reasigna el pitch
+  al juego correcto** (con match exacto que gana a contención, para no confundir *Skull* con *Skull
+  King*). Solo si no se puede ubicar, cae al pitch determinístico.
+### Added
+- **Trazabilidad del LLM**: cada llamada al agente registra una línea JSON en `advisor_trace.jsonl`
+  (prompt, respuesta cruda, candidatos, picks del modelo vs. finales, *warnings* y tiempos) — para
+  diagnosticar con el dato, no suponiendo. Retención por antigüedad + cantidad (30 días / 100 por
+  defecto), podada en cada escritura; apagable/ajustable por entorno (`BG_ADVISOR_TRACE*`,
+  `BG_TRACE_PATH`) y con script de limpieza `server/prune_traces.py` para cron/Docker.
+### Performance
+- **Portadas lazy** en Biblioteca/Wishlist/BGG (todas las plataformas): las imágenes se bajan de la
+  CDN de BGG recién al acercarse al viewport, con **preload deslizante proporcional a lo visible**
+  (margen = 2× la altura de pantalla → quedan cargados el bloque visible + los ~2 siguientes, ≈3×;
+  al scrollear entra el siguiente y así). Antes se disparaban ~150 imágenes externas de golpe al
+  entrar a una vista. En celular la vista se asienta mucho más rápido y baja el uso de red; sin
+  cambios de layout (el box de la portada ya tenía tamaño fijo) ni de aspecto en desktop.
+
 ## [0.10.1] — 2026-08-10 — Topbar celular más compacto
 ### Changed
 - En celular la barra superior pasa de **3 filas a 2**: se oculta el texto "Ludoteca" y el

@@ -752,8 +752,53 @@ try:
           "expansi" in _p_play.lower() and "suger" in _p_play.lower())
     _p_buy = advisor._build_prompt("buy", {"usual_players": 3}, _sl)
     check("prompt buy NO incluye expansiones (solo juegos)", "EXPANSIONES QUE POSEE" not in _p_buy)
+    check("prompt usa ref corto (#1) en vez del objectid", "#1 |" in _p_play and "id=X1" not in _p_play)
 except Exception as e:  # noqa
     check(f"expansiones en prompt ({e})", False)
+
+# ---- guard ref-pitch: reasignar el pitch al juego correcto por `name`, y retención de traza ----
+try:
+    import os
+    # exacto gana a contención cuando conviven 'Skull' y 'Skull King'
+    _mkg = lambda oid, name: {"objectid": oid, "name": name, "image": "", "thumb": "",
+                              "weight": 2.0, "subdomains": [], "es_name": ""}
+    _sk = [(9.0, ["a"], _mkg("SK", "Skull King")), (8.0, ["b"], _mkg("S", "Skull"))]
+    check("_find_in_shortlist_by_name: exacto gana a contención",
+          advisor._find_in_shortlist_by_name(_sk, "Skull")[2]["objectid"] == "S")
+
+    # agent_pick: el modelo pone ref=1 (Scotland Yard) pero name/pitch son de Take Five → reasigna
+    _shortlist = [(9.0, ["r1"], _mkg("2996", "Scotland Yard")),
+                  (8.0, ["r2"], _mkg("432", "Take Five"))]
+    _orig_call = advisor._call_gemini
+    _orig_trace = advisor.TRACE_ENABLED
+    advisor.TRACE_ENABLED = False   # no escribir archivo en tests
+    os.environ["GEMINI_API_KEY"] = "test-key"
+    advisor._call_gemini = lambda *a, **k: (
+        '{"picks":[{"ref":1,"name":"Take Five","pitch":"Sumás la menor cantidad de puntos evitando filas."}]}')
+    try:
+        _out = advisor.agent_pick("play", {"players": 6}, _shortlist, limit=4)
+    finally:
+        advisor._call_gemini = _orig_call
+        advisor.TRACE_ENABLED = _orig_trace
+        os.environ.pop("GEMINI_API_KEY", None)
+    _p0 = _out["picks"][0]
+    check("agent_pick reasigna el pitch al juego correcto (por name)",
+          _p0["objectid"] == "432" and _p0["name"] == "Take Five" and "menor cantidad" in _p0["pitch"])
+
+    # retención de traza: descarta > max_days y respeta el tope por cantidad
+    import time as _t, json as _tj
+    _now = _t.time()
+    _old = _t.strftime(advisor._TS_FMT, _t.localtime(_now - 40 * 86400))
+    _new = _t.strftime(advisor._TS_FMT, _t.localtime(_now - 1 * 86400))
+    _kept = advisor.prune_trace_lines(
+        [_tj.dumps({"ts": _old}) + "\n", _tj.dumps({"ts": _new}) + "\n"],
+        max_days=30, max_count=100, now=_now)
+    check("prune_trace_lines descarta lo más viejo que la ventana", len(_kept) == 1)
+    check("prune_trace_lines respeta el tope por cantidad",
+          len(advisor.prune_trace_lines([_tj.dumps({"ts": _new}) + "\n"] * 150,
+                                        max_days=30, max_count=100, now=_now)) == 100)
+except Exception as e:  # noqa
+    check(f"guard ref-pitch + retencion traza ({e})", False)
 
 # ---- recomendaciones guardadas (saved_recs): save/list/get/delete, scope por owner ----
 try:

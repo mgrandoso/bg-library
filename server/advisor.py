@@ -418,6 +418,31 @@ def _norm(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _name_matches(a, b):
+    """Compara nombres de juego de forma tolerante (para el guard id↔pitch del agente): normaliza
+    y acepta que uno contenga al otro ('Scotland Yard' ~ 'Scotland Yard: ...'). Así no descartamos
+    un pitch bueno por diferencias menores de puntuación/subtítulo."""
+    na, nb = _norm(a), _norm(b)
+    return bool(na) and bool(nb) and (na == nb or na in nb or nb in na)
+
+
+def _find_in_shortlist_by_name(shortlist, name):
+    """Ubica en el shortlist el candidato cuyo nombre (o es_name) coincide con `name`. Match EXACTO
+    (normalizado) primero —clave cuando conviven 'Skull' y 'Skull King'—; si no hay exacto, prueba
+    por contención pero solo si es inequívoco (un único candidato), para no reasignar al que no es.
+    Devuelve la terna (score, why, g) o None."""
+    nn = _norm(name)
+    if not nn:
+        return None
+    for entry in shortlist:                       # 1) exacto
+        g = entry[2]
+        if nn == _norm(g["name"]) or nn == _norm(g.get("es_name") or ""):
+            return entry
+    hits = [e for e in shortlist                  # 2) contención, solo si único
+            if _name_matches(name, e[2]["name"]) or _name_matches(name, e[2].get("es_name") or "")]
+    return hits[0] if len(hits) == 1 else None
+
+
 # Nombres del catálogo que también son palabra común (ES/EN): p.ej. "azul" el color vs. el juego
 # Azul. Para ESTOS (y solo si son de una sola palabra) exigimos una señal de intención antes de
 # tratarlos como mención. Es una lista de palabras frecuentes del idioma, no de juegos.
@@ -520,13 +545,16 @@ def resolve_mentions(conn, text, collection, limit=4):
 def _build_prompt(mode, answers, shortlist, mentioned=None):
     games_txt = []
     any_exps = False
-    for s, why, g in shortlist:
+    # Referenciamos cada candidato por un índice corto (#1, #2, …) en vez del objectid de BGG:
+    # copiar un número chico y ordenado es mucho menos propenso a error que transcribir un id de
+    # 5-6 dígitos, que es donde el modelo desalineaba el pitch con el juego equivocado.
+    for i, (s, why, g) in enumerate(shortlist, 1):
         # preferimos la descripción larga: el LLM aprovecha el contexto temático
         desc = (g.get("description") or g.get("short_description") or "").strip().replace("\n", " ")
         if len(desc) > 400:
             desc = desc[:400] + "…"
         line = (
-            f"- id={g['objectid']} | {g['name']} ({g.get('yearpublished')}) | "
+            f"- #{i} | {g['name']} ({g.get('yearpublished')}) | "
             f"tipo={','.join(g.get('subdomains') or [])} | complejidad={round(g.get('weight') or 0,1)}/5 | "
             f"jugadores {g.get('minplayers')}-{g.get('maxplayers')} (mejor: {g.get('best_players')}) | "
             f"~{g.get('maxplaytime')}min | edad {g.get('minage_publisher')}+ | "
@@ -621,8 +649,72 @@ Reglas de estilo del pitch (importante):
   baja = se puede jugar sin saber el idioma / sin leer casi nada.
 - Tono relajado, como recomendándole un juego a un amigo. Sin floreo ni marketing.
 
-Respondé SOLO JSON válido con esta forma exacta:
-{{"picks":[{{"objectid":"<id>","pitch":"<3-4 frases>"}}]}}"""
+Respondé SOLO JSON válido con esta forma exacta (un objeto por juego elegido):
+{{"picks":[{{"ref":<número # del candidato>,"name":"<nombre EXACTO del juego tal como figura en los candidatos>","pitch":"<3-4 frases sobre ESE juego>"}}]}}
+CRÍTICO: `ref` es el número # que aparece al inicio de cada candidato (p. ej. #7 → ref:7). `ref`,
+`name` y `pitch` tienen que corresponder al MISMO juego: el pitch describe el juego de ESE #/name,
+nunca otro de la lista. Verificá cada terna antes de responder."""
+
+
+# ---- trazabilidad del LLM (observabilidad) ----
+# Con el motor determinístico, input + reglas reproducen el error. Con el LLM el razonamiento y la
+# respuesta son caja negra: sin guardar prompt y respuesta cruda, un caso raro solo se puede SUPONER.
+# Guardamos una línea JSON por llamada al agente (prompt, respuesta, candidatos, picks del modelo vs.
+# finales, warnings, tiempos) en el mismo volumen que la DB, con rotación. Se puede apagar con
+# BG_ADVISOR_TRACE=0. Nunca rompe la recomendación si falla el escribir.
+TRACE_ENABLED = os.environ.get("BG_ADVISOR_TRACE", "1") != "0"
+TRACE_MAX = int(os.environ.get("BG_ADVISOR_TRACE_MAX", "100"))   # tope por cantidad de llamadas
+TRACE_DAYS = int(os.environ.get("BG_ADVISOR_TRACE_DAYS", "30"))  # tope por antigüedad (días)
+_TS_FMT = "%Y-%m-%dT%H:%M:%S"
+
+
+def _trace_path():
+    p = os.environ.get("BG_TRACE_PATH")
+    if p:
+        return p
+    import db
+    return os.path.join(os.path.dirname(os.path.abspath(db.DB_PATH)) or ".", "advisor_trace.jsonl")
+
+
+def prune_trace_lines(lines, max_days=TRACE_DAYS, max_count=TRACE_MAX, now=None):
+    """Retención de la traza: descarta registros más viejos que `max_days` y deja a lo sumo
+    `max_count` (los más nuevos). Tolera líneas corruptas (las conserva por las dudas). Devuelve la
+    lista podada. Usado tanto al escribir como por el script de limpieza (prune_traces.py)."""
+    now = now if now is not None else time.time()
+    cutoff = now - max_days * 86400 if max_days and max_days > 0 else None
+    kept = []
+    for ln in lines:
+        if not ln.strip():
+            continue
+        if cutoff is not None:
+            try:
+                ts = time.mktime(time.strptime(json.loads(ln).get("ts", ""), _TS_FMT))
+                if ts < cutoff:
+                    continue          # más viejo que la ventana → se descarta
+            except (ValueError, json.JSONDecodeError, TypeError):
+                pass                  # sin ts parseable: no puedo juzgar antigüedad, lo conservo
+        kept.append(ln if ln.endswith("\n") else ln + "\n")
+    if max_count and max_count > 0 and len(kept) > max_count:
+        kept = kept[-max_count:]
+    return kept
+
+
+def _trace(record):
+    if not TRACE_ENABLED:
+        return
+    try:
+        record = dict(record, ts=time.strftime(_TS_FMT))
+        path = _trace_path()
+        lines = []
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        lines.append(json.dumps(record, ensure_ascii=False) + "\n")
+        lines = prune_trace_lines(lines)      # poda por antigüedad + cantidad en cada escritura
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    except Exception as e:  # noqa — la traza es best-effort, jamás tumba la recomendación
+        print(f"[advisor] no pude escribir la traza: {e}", flush=True)
 
 
 def agent_pick(mode, answers, shortlist, limit, mentioned=None):
@@ -645,32 +737,91 @@ def agent_pick(mode, answers, shortlist, limit, mentioned=None):
     if mentioned:
         print(f"[advisor] menciones detectadas: {[g['name'] for g in mentioned]}", flush=True)
     prompt = _build_prompt(mode, answers, shortlist, mentioned=mentioned)
-    by_id = {g["objectid"]: (s, why, g) for s, why, g in shortlist}
+    by_ref = {i: entry for i, entry in enumerate(shortlist, 1)}   # #N → (score, why, g)
+    cand_trace = [{"ref": i, "objectid": e[2]["objectid"], "name": e[2]["name"]}
+                  for i, e in by_ref.items()]
+    warnings = []
+    def warn(msg):
+        print("[advisor] WARN " + msg, flush=True)
+        warnings.append(msg)
+
     t0 = time.time()
     try:
         result_text = _call_gemini(prompt, gem_key, gem_model)
     except Exception as e:  # noqa
         print(f"[advisor] gemini FALLO en {time.time()-t0:.1f}s: {e}", flush=True)
+        _trace({"mode": mode, "model": gem_model, "elapsed_ms": int((time.time()-t0)*1000),
+                "answers": answers, "candidates": cand_trace, "prompt": prompt,
+                "error": str(e), "outcome": "gemini_error"})
         return deterministico("Gemini no respondió; usé el determinístico.")
     elapsed = time.time() - t0
     print(f"[advisor] gemini {gem_model} OK en {elapsed:.1f}s ({mode})", flush=True)
     used = "gemini:" + gem_model
 
     parsed = _extract_json(result_text) or {"picks": []}
+    model_picks = parsed.get("picks", [])   # lo que devolvió el modelo, tal cual (para la traza)
     picks = []
+    seen = set()
     for p in parsed.get("picks", [])[:limit]:
-        oid = str(p.get("objectid"))
-        if oid in by_id:
-            s, why, g = by_id[oid]
-            picks.append({
-                "objectid": oid, "name": g["name"], "image": g["image"], "thumb": g["thumb"],
-                "weight": g["weight"], "subdomains": g["subdomains"],
-                "reasons": [w for w in why if isinstance(w, str)],
-                "pitch": p.get("pitch") or _mk_pitch(g, [w for w in why if isinstance(w, str)]),
-            })
-    if not picks:  # el LLM no devolvió ids válidos -> caemos al shortlist
+        try:
+            ref = int(p.get("ref"))
+        except (TypeError, ValueError):
+            ref = None
+        ret_name = (p.get("name") or "").strip()
+        pitch = p.get("pitch")
+        entry = by_ref.get(ref)
+
+        # CROSS-CHECK + CORRECCIÓN de desalineado ref↔pitch: aunque el ref (índice corto) es mucho
+        # menos propenso a error que un objectid largo, si el `name` que devolvió el modelo NO
+        # coincide con el juego del ref pero SÍ con otro candidato, el pitch es de ESE otro juego →
+        # reasignamos al correcto (no perdemos el pitch del modelo). Solo si no lo ubicamos por name
+        # caemos al pitch determinístico (coherente con la tarjeta).
+        name_ok = entry is not None and ret_name and (
+            _name_matches(ret_name, entry[2]["name"]) or _name_matches(ret_name, entry[2].get("es_name") or ""))
+        if ret_name and not name_ok:
+            alt = _find_in_shortlist_by_name(shortlist, ret_name)
+            if alt is not None:
+                warn(f"ref/pitch desalineados: ref={ref} "
+                     f"({entry[2]['name'] if entry else '?'}) pero el modelo lo llamo "
+                     f"'{ret_name}' -> reasigno el pitch a '{alt[2]['name']}'.")
+                entry = alt
+            elif entry is not None:
+                warn(f"name='{ret_name}' no matchea ningún candidato; "
+                     f"uso pitch determinístico para ref={ref} ('{entry[2]['name']}').")
+                pitch = None
+
+        if entry is None:
+            continue
+        s, why, g = entry
+        oid = str(g["objectid"])
+        if oid in seen:
+            continue
+        seen.add(oid)
+        strs = [w for w in why if isinstance(w, str)]
+        picks.append({
+            "objectid": oid, "name": g["name"], "image": g["image"], "thumb": g["thumb"],
+            "weight": g["weight"], "subdomains": g["subdomains"],
+            "reasons": strs,
+            "pitch": pitch or _mk_pitch(g, strs),
+        })
+    # traza común (prompt + respuesta cruda + candidatos + picks del modelo vs. finales + warnings)
+    def _write_trace(outcome):
+        _trace({"mode": mode, "model": gem_model, "elapsed_ms": int(elapsed * 1000),
+                "answers": answers, "candidates": cand_trace, "prompt": prompt,
+                "raw_response": result_text, "model_picks": model_picks,
+                "final_picks": [{"objectid": pk["objectid"], "name": pk["name"],
+                                 "pitch": pk["pitch"]} for pk in picks],
+                "warnings": warnings, "outcome": outcome})
+
+    if not picks:  # el LLM no devolvió refs válidos -> caemos al shortlist
+        _write_trace("no_valid_refs")
         return {"engine": "rules", "mode": mode, "picks": _picks_from_scored(shortlist[:limit]),
                 "considered": len(shortlist), "note": "El agente no devolvió juegos válidos."}
+    # traza del mapeo final id→juego→pitch (para diagnosticar desalineados del modelo)
+    for pk in picks:
+        print(f"[advisor] pick id={pk['objectid']} '{pk['name']}' :: "
+              f"{(pk['pitch'] or '')[:70]!r}", flush=True)
+    _write_trace("ok")
     # los candidatos que analizó el determinístico (en su orden), marcando cuáles eligió el agente
     picked_ids = {p["objectid"] for p in picks}
     candidates = [{"objectid": g["objectid"], "name": g["name"],
