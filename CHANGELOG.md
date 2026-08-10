@@ -9,6 +9,17 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.12.7] — 2026-08-10 — Fix: tap en la nav de celular que a veces no cambiaba de vista
+### Fixed
+- **Nav en celular:** a veces un toque en la barra de navegación no cambiaba de vista. Dos causas
+  probables, ambas atacadas: (A) se agrega `touch-action: manipulation` a los botones → el navegador
+  trata el toque como **tap directo** (sin esperar gesto de doble-tap-zoom ni pan), así el cambio de
+  vista dispara sin ambigüedad; (B) se quita el `overflow-x: auto` de `.nav` (quedaba de antes de la
+  nav en iconos) — con los 5 iconos a `flex:1` llenando el ancho **no hay nada que scrollear**, y ese
+  scroll horizontal fantasma podía hacer que un tap con micro-movimiento se leyera como pan y se comiera
+  el click. Verificado sin regresión (sin overflow, click cambia de vista); la confirmación del gesto
+  táctil real queda para prueba en dispositivo (el preview no emula touch fiel).
+
 ## [0.12.6] — 2026-08-10 — Refactor de la barra de filtros + README multi-dispositivo
 ### Changed
 - **Refactor (Clean Code):** la estructura de la barra de filtros (compacto con 3 grupos / tablet

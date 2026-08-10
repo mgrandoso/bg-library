@@ -215,7 +215,9 @@ img { display: block; }
 
   .nav { flex: 1 1 100%; order: 3; gap: 6px; padding: 5px; }
   /* iconos repartidos a lo ancho: cada botón se estira (flex:1) → targets grandes y separados */
-  .nav button { flex: 1; padding: 11px 0; border-radius: 9px; display: grid; place-items: center; }
+  /* touch-action:manipulation → el navegador trata el toque como tap directo (sin esperar gesto de
+     doble-tap-zoom ni pan) → el cambio de vista dispara sin ambigüedad en celular. */
+  .nav button { flex: 1; padding: 11px 0; border-radius: 9px; display: grid; place-items: center; touch-action: manipulation; }
   .nav button .nav-tx { display: none; }
   .nav button .nav-ic { display: block; width: 22px; height: 22px; }
 
@@ -891,7 +893,10 @@ select, .mini-select {
 @media (max-width: 720px) {
   .topbar-inner { gap: 12px; }
   .brand .sub { display: none; }
-  .nav { order: 3; width: 100%; overflow-x: auto; }
+  /* sin overflow-x:auto: los 5 iconos van flex:1 y llenan el ancho, no hay nada que scrollear. El
+     scroll horizontal fantasma podía hacer que un tap con micro-movimiento se leyera como pan y se
+     comiera el cambio de vista en celular. */
+  .nav { order: 3; width: 100%; }
   main { padding: 18px 14px 70px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 13px; }
   .detail-hero { grid-template-columns: 1fr; }
