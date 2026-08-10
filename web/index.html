@@ -4,8 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Ludoteca — tu biblioteca de juegos de mesa</title>
-  <link rel="stylesheet" href="/styles.css?v=63">
+  <link rel="stylesheet" href="/styles.css?v=68">
+  <!-- pestaña: dado emoji transparente (liviano). Favoritos/pantalla de inicio iOS: baldosa Playa (PNG). -->
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎲%3C/text%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=2">
+  <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png?v=2">
 </head>
 <body>
   <div id="app">
@@ -65,7 +68,10 @@
 
   <div id="modalRoot"></div>
   <div id="toast" class="toast"></div>
+  <button id="toTop" class="to-top" aria-label="Volver arriba" title="Volver arriba">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+  </button>
 
-  <script src="/app.js?v=60"></script>
+  <script src="/app.js?v=61"></script>
 </body>
 </html>

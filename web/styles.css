@@ -882,8 +882,26 @@ select, .mini-select {
   padding: 12px 20px; border-radius: 12px; box-shadow: var(--shadow-lift); z-index: 90;
   opacity: 0; transition: .25s; font-weight: 600; font-size: 14px;
   text-align: center; max-width: min(90vw, 420px);
+  pointer-events: none;   /* notificación pasiva: nunca intercepta mouse/tap (tapaba el botón "volver arriba") */
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* botón flotante "volver arriba": sutil y translúcido (glass), centrado abajo. Aparece al scrollear
+   más de ~500px. z-index 35 → debajo del topbar (40) y del overlay de fichas (60), así no tapa modales. */
+.to-top {
+  position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(8px);
+  width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center;
+  cursor: pointer; color: var(--ink-soft);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  backdrop-filter: blur(8px); box-shadow: var(--shadow-card);
+  opacity: 0; pointer-events: none; z-index: 35;
+  transition: opacity .2s, transform .2s, color .15s;
+}
+.to-top.show { opacity: .6; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+.to-top.show:hover { opacity: 1; color: var(--ink); }
+.to-top svg { width: 18px; height: 18px; }
 .spinner { width: 34px; height: 34px; border: 3px solid var(--line); border-top-color: var(--brass); border-radius: 50%; animation: spin .8s linear infinite; margin: 40px auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .dice-rolling { animation: roll .6s ease; display: inline-block; }

@@ -9,6 +9,21 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.12.8] — 2026-08-10 — Botón "volver arriba", favicon para favoritos y fix del toast
+### Added
+- **Botón "volver arriba":** aparece flotante y sutil (glass translúcido, centrado abajo) al scrollear
+  más de 500px; sube con scroll suave y se oculta solo al llegar. Cuadrado redondeado (36px) como los
+  controles de la app, `z-index` por debajo del topbar y de las fichas para no taparlos.
+- **`apple-touch-icon` (dado sobre baldosa):** al guardar la app en **favoritos / pantalla de inicio en
+  iOS** no aparecía icono (Safari ignora el favicon SVG para eso; necesita un PNG). Se agrega el
+  `apple-touch-icon` (180 y 512) con el dado sobre baldosa. La **pestaña** sigue usando el emoji 🎲
+  transparente (liviano).
+### Fixed
+- **El `#toast` robaba el hover/clicks en la zona centrada abajo:** era una caja `position: fixed` a
+  `z-index: 90` con `pointer-events: auto` aunque estuviera invisible, y se solapaba con la mitad
+  inferior del botón "volver arriba" (el hover solo prendía arriba). Un toast es una notificación
+  pasiva → se le pone `pointer-events: none`; deja de interceptar el puntero en cualquier lado.
+
 ## [0.12.7] — 2026-08-10 — Fix: tap en la nav de celular que a veces no cambiaba de vista
 ### Fixed
 - **Nav en celular:** a veces un toque en la barra de navegación no cambiaba de vista. Dos causas

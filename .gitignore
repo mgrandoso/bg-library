@@ -25,3 +25,6 @@ data/*.tmp
 data/*.bak
 data/*.retired
 PENDING.md
+
+# caché local de portadas (spike/seed del top-5000, ~1 GB): jamás al repo:
+.imgcache/

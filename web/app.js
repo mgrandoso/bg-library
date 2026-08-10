@@ -238,6 +238,14 @@ function bindTop() {
   $('#ownerSel').addEventListener('change', async e => {
     S.owner = +e.target.value; await loadGames(); render();
   });
+  // botón "volver arriba": aparece al scrollear >500px; sube suave (html tiene scroll-behavior:smooth)
+  const toTop = $('#toTop');
+  if (toTop) {
+    const sync = () => toTop.classList.toggle('show', window.scrollY > 500);
+    window.addEventListener('scroll', sync, { passive: true });
+    toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    sync();
+  }
   applyLockUI();
 }
 
