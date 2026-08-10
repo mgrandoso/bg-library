@@ -9,6 +9,17 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.11.4] — 2026-08-10 — Sin auto-zoom de iOS al enfocar campos de texto
+### Fixed
+- **iOS zoomeaba (y dejaba la app zoomeada) al tocar un campo de texto** — se notaba en el textarea
+  del Advisor y en los formularios. Safari hace *auto-zoom* al enfocar cualquier `input`/`textarea`
+  con `font-size < 16px`. Ahora **todos** los campos de texto en celular van a **16px** (ya estaba el
+  buscador; faltaban el textarea del Advisor y los `.field`). Los `<select>` no se tocan (no zoomean:
+  abren picker nativo), así el ancho del selector de perfil / filtros queda igual.
+- Al subir el textarea del Advisor a 16px, el **ejemplo del placeholder** dejaba de entrar (se cortaba
+  el último renglón) → se le dio más alto en celular (`min-height` 160px) para que el ejemplo se lea
+  completo.
+
 ## [0.11.3] — 2026-08-10 — Ficha en celular: barra dinámica de Safari
 ### Fixed
 - **La ficha (modal) se abría fuera de vista en el iPhone**: al tocar una tarjeta con la barra de
