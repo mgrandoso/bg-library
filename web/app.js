@@ -1739,7 +1739,9 @@ function renderResults(out) {
         <div class="rec-why">${(p.reasons || []).map(r => `<span class="tagchip">✓ ${esc(r)}</span>`).join('')}</div>
       </div>
     </div>`);
-    clampText(c.querySelector('.rec-pitch'), p.pitch, 28);   // el pitch largo se corta con "ver más"
+    // "ver más / ver menos" solo en celular; en tablet/PC hay lugar de sobra → mostrar todo el pitch
+    if (isMobile()) clampText(c.querySelector('.rec-pitch'), p.pitch, 28);
+    else c.querySelector('.rec-pitch').textContent = p.pitch;
     c.querySelector('.rec-ficha').addEventListener('click', () => openDetail(g, { readonly: true }));
     res.append(c);
   });

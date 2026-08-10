@@ -9,6 +9,11 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.11.2] — 2026-08-10 — "Ver más" del Advisor solo en celular
+### Changed
+- El **"ver más / ver menos"** del pitch de las recomendaciones del Advisor ahora aplica **solo en
+  celular**. En **tablet y PC** se muestra el pitch **completo** (hay lugar de sobra, no aporta cortar).
+
 ## [0.11.1] — 2026-08-10 — Scroll por vista + prefetch de portadas
 ### Fixed
 - Al cambiar de tab (Biblioteca/Wishlist/BGG) el **scroll ya no se comparte**: cada vista arranca
