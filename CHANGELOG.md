@@ -9,6 +9,26 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.12.5] — 2026-08-10 — Tablet horizontal: filtros en dos botones + pulidos de PC/tablet
+### Added
+- **Filtros en tablet horizontal (Biblioteca, Wishlist y BGG):** la primera línea queda inline como PC,
+  pero la segunda pasa a **dos botones colapsables (Tipo / Mecánica)** en acordeón (abrir uno cierra el
+  otro) + Limpiar/contador a la derecha. Antes los 8 chips de tipo iban sueltos y desbordaban el ancho.
+  Los dos botones quedan del **mismo tamaño** (min-width 150px). En BGG el diseñador activo se muestra
+  como chip removible suelto en la fila de los botones. Detección por ancho: `landscape` + 1025–1366px
+  (la PC del usuario, >1366px, mantiene los chips inline).
+- **Resumen de ficha por dispositivo:** el corte antes del "ver más" pasa a depender de la pantalla
+  (`descLimit()`): **60 palabras en celular, 70 en tablet (vertical y horizontal), 80 en PC**. Antes eran
+  60 fijas en todos lados.
+### Changed
+- **Espaciado vertical del topbar (PC y tablet):** el hueco topbar→filtros sumaba el `padding-bottom`
+  del topbar (14px) + el `padding-top` de `#main` (26px) = 40px, muy exagerado contra los 14px que
+  respira el nav arriba del bar. Se baja `#main` a 14px → queda **parejo (14/14)**. Compacto y ≤720px
+  no se tocan (tienen su propio override).
+- **Barra de estado de la ficha (PC y tablet):** el padding vertical baja de **18px a 12px** para que
+  los botones "Lo tengo / Lo quiero / Ninguno" no queden con tanto aire arriba y abajo. Celular mantiene
+  su propio valor (10px).
+
 ## [0.12.4] — 2026-08-10 — Hotfix: PC y tablet horizontal rotos por llave faltante
 ### Fixed
 - **Regresión de v0.12.3:** al cerrar el bloque `@media` de tablet vertical faltaba la llave `}`, así que

@@ -91,6 +91,17 @@ const mqMobile = window.matchMedia('(max-width: 640px)');
 function isMobile() { return mqMobile.matches; }
 const mqCompact = window.matchMedia('(max-width: 640px), (min-width: 641px) and (max-width: 1024px) and (orientation: portrait)');
 function isCompact() { return mqCompact.matches; }
+// tablet HORIZONTAL (641–1024, landscape): la línea 1 de filtros queda inline como PC, pero la
+// línea 2 pasa a DOS botones colapsables (Tipo / Mecánica) para no desbordar el ancho.
+const mqTabLand = window.matchMedia('(orientation: landscape) and (min-width: 1025px) and (max-width: 1366px)');
+function isTabletLandscape() { return mqTabLand.matches; }
+// palabras del resumen de ficha antes del "ver más", por dispositivo: celular 60, tablet (vertical y
+// horizontal) 70, PC 80. isCompact() incluye celular → chequear isMobile() primero.
+function descLimit() {
+  if (isMobile()) return 60;
+  if (isCompact() || isTabletLandscape()) return 70;   // tablet vertical (isCompact sin celular) u horizontal
+  return 80;                                            // PC
+}
 function onBreakpointChange() {
   if (typeof fillOwnerSel === 'function' && S.owners) fillOwnerSel();   // "(N)" del perfil según plataforma
   if (coverObserver) { coverObserver.disconnect(); coverObserver = null; }  // recalcula el margen (2× viewport)
@@ -98,6 +109,7 @@ function onBreakpointChange() {
 }
 mqMobile.addEventListener('change', onBreakpointChange);
 mqCompact.addEventListener('change', onBreakpointChange);   // rotar tablet vertical↔horizontal reconstruye la barra
+mqTabLand.addEventListener('change', onBreakpointChange);   // cruzar 1024px en horizontal (tablet↔desktop) reconstruye la barra
 // contador de filtros activos entre los selects (jugadores/duración/complejidad/diseñador);
 // el orden no cuenta (siempre tiene un valor). Sirve para el badge del botón "Filtros" en celular.
 function activeSelectCount(f) {
@@ -606,6 +618,17 @@ function renderFilters(kind) {
     // hay espacio → van en la MISMA fila de los botones, a la derecha (CSS: .fbtns .filters-tail).
     if (isMobile()) bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
     else { fbtns.append(tail); bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel); }
+  } else if (isTabletLandscape()) {
+    // tablet horizontal: línea 1 con los selects inline (igual que PC); línea 2 con DOS botones
+    // colapsables (Tipo / Mecánica) en acordeón + Limpiar/contador a la derecha. Todo en 2 líneas.
+    bar.append(players, time, weight, dsel, sort, dirBtn);
+    const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
+    const fbtns = node('<div class="fbtns"></div>');
+    const tail = node('<div class="filters-tail"></div>');
+    tail.append(clearBtn, countTag);
+    fbtns.append(gTipo.button, mech.button, tail);
+    wireAccordion([gTipo, mech]);   // un solo grupo abierto a la vez
+    bar.append(fbtns, gTipo.panel, mech.panel);
   } else {
     // desktop: todo inline, como siempre
     bar.append(players, time, weight, dsel, sort, dirBtn);
@@ -769,6 +792,19 @@ function renderBGGFilters() {
     // derecha (CSS: .fbtns .filters-tail).
     if (isMobile()) bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
     else { fbtns.append(tail); bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel); }
+  } else if (isTabletLandscape()) {
+    // tablet horizontal: igual que Biblioteca (línea 1 inline, línea 2 con Tipo/Mecánica colapsables).
+    // El diseñador activo va como chip removible suelto en la fila de los botones (BGG no tiene combo).
+    bar.append(players, time, weight, sort, dirBtn);
+    const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
+    const fbtns = node('<div class="fbtns"></div>');
+    fbtns.append(gTipo.button, mech.button);
+    if (dchip) fbtns.append(dchip);
+    const tail = node('<div class="filters-tail"></div>');
+    tail.append(clearBtn, countTag);
+    fbtns.append(tail);
+    wireAccordion([gTipo, mech]);   // un solo grupo abierto a la vez
+    bar.append(fbtns, gTipo.panel, mech.panel);
   } else {
     bar.append(players, time, weight, sort, dirBtn);
     const chips = node('<div class="type-chips"></div>');
@@ -1253,9 +1289,10 @@ function clampText(box, text, limit) {
 async function setupDescription(inner, g) {
   const box = inner.querySelector('#detailDesc'); if (!box) return;
   const short = g.short_description || '';
+  const limit = descLimit();
   const collapse = (text) => {
-    box.innerHTML = esc(_words(text, 60));
-    if ((text.split(/\s+/).length) > 60) {
+    box.innerHTML = esc(_words(text, limit));
+    if ((text.split(/\s+/).length) > limit) {
       const a = node('<button class="vermas">ver más ▾</button>');
       a.onclick = () => expand(text); box.append(' '); box.append(a);
     }

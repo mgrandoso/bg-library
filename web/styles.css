@@ -387,8 +387,32 @@ img { display: block; }
   #main .panel[style*="span 4"] .hbar-lbl { width: 104px; }
 }
 
+/* ===== Solo TABLET HORIZONTAL (641–1024, landscape): la línea 1 de filtros queda inline como PC,
+   pero la línea 2 pasa a DOS botones colapsables (Tipo / Mecánica) en fila propia + Limpiar/contador
+   a la derecha, para no desbordar el ancho. Reusa el markup fbtns/fpanel del compacto; acá los botones
+   van a ancho NATURAL (son solo dos) y el tail se pega a la derecha con margin-left:auto.
+   No setea `display` en .mech-panel a propósito: lo hereda de la base para que `[hidden]` siga
+   ocultándolo (mismo truco que el bloque compacto). ===== */
+@media (orientation: landscape) and (min-width: 1025px) and (max-width: 1366px) {
+  .fbtns { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .fbtns > .chip { flex: 0 0 auto; }
+  /* Tipo / Mecánica del MISMO tamaño: min-width que le entra al más largo ("🛠 Mecánicas (N)", N≤8)
+     y contenido centrado. Solo los dos botones toggle (no el chip removible de diseñador en BGG). */
+  .fbtns > .fgroup-btn, .fbtns > .mech-btn { min-width: 150px; justify-content: center; }
+  .fbtns .chip.mech-btn { border-style: solid; }        /* sin el marco punteado del desktop */
+  .fbtns .filters-tail { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  .fbtns .filters-tail .count-tag { margin-left: 0; }   /* Limpiar + contador juntos a la derecha */
+  .fpanel { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0; }
+  .fpanel[hidden] { display: none; }                    /* gana al author `.fpanel{display:flex}` */
+  .filters .mech-panel { flex: 1 1 100%; padding: 4px 0; border: 0; background: none; gap: 8px; margin-top: 0; }
+}
+
 /* ---------------- layout ---------------- */
-main { max-width: var(--maxw); margin: 0 auto; padding: 26px 22px 80px; }
+/* padding-top 14px (no 26): el hueco topbar→filtros era el padding-bottom del topbar (14) + este
+   padding-top → antes 14+26=40px, muy exagerado contra los 14px que respira el nav ARRIBA del bar.
+   Con 14 queda parejo (14 arriba / 14 abajo del bar). Aplica a PC y tablet horizontal; compacto y
+   portrait lo pisan con `#main { padding-top: 6px }` y ≤720px con su propia regla. */
+main { max-width: var(--maxw); margin: 0 auto; padding: 14px 22px 80px; }
 .view { animation: fade .35s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(6px); } }
 
@@ -550,7 +574,7 @@ select, .mini-select {
 .section-h { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-dim); font-weight: 700; margin: 16px 0 8px; }
 
 /* controles de estado */
-.state-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 18px 24px; border-top: 1px solid var(--line-soft); background: var(--bg-2); position: sticky; bottom: 0; }
+.state-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 12px 24px; border-top: 1px solid var(--line-soft); background: var(--bg-2); position: sticky; bottom: 0; }
 .seg { display: flex; background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 3px; }
 .seg button { border: 0; background: transparent; color: var(--ink-soft); padding: 8px 16px; border-radius: 8px; font-weight: 600; font-size: 13.5px; }
 .seg button.on { background: var(--brass); color: var(--brass-ink); }
