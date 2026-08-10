@@ -751,17 +751,22 @@ function renderBGGFilters() {
   const countTag = node('<span class="count-tag" id="bggCount"></span>');
 
   if (isCompact()) {
-    // celular / tablet vertical: mismos tres grupos que Biblioteca (el diseñador va como chip en la fila de botones)
-    const gFiltros = filterGroup('filtros', '🎛', 'Filtros', activeSelectCount(f), [players, time, weight, sort, dirBtn]);
+    // celular / tablet vertical: mismos tres grupos que Biblioteca. BGG no tiene combo de diseñador
+    // (~2800 opciones), así que el diseñador activo va como chip removible DENTRO del panel Filtros,
+    // en el lugar que ocuparía el select de diseñador (no como chip suelto afuera). activeSelectCount
+    // ya lo cuenta → el badge "Filtros (N)" queda consistente con Biblioteca/Wishlist.
+    const filtrosBody = [players, time, weight];
+    if (dchip) filtrosBody.push(dchip);       // slot del diseñador
+    filtrosBody.push(sort, dirBtn);
+    const gFiltros = filterGroup('filtros', '🎛', 'Filtros', activeSelectCount(f), filtrosBody);
     const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
     const fbtns = node('<div class="fbtns"></div>');
     fbtns.append(gFiltros.button, gTipo.button, mech.button);
     wireAccordion([gFiltros, gTipo, mech]);   // un solo grupo abierto a la vez
     const tail = node('<div class="filters-tail"></div>');
-    if (dchip) tail.append(dchip);            // el chip de diseñador va al pie (no rompe las 3 columnas)
-    tail.append(clearBtn, countTag);
-    // celular: tail (diseñador + Limpiar + "N juegos") en fila propia abajo. Tablet vertical: en la
-    // misma fila de los botones, a la derecha (CSS: .fbtns .filters-tail).
+    tail.append(clearBtn, countTag);          // afuera SOLO Limpiar + contador
+    // celular: tail en fila propia abajo. Tablet vertical: en la misma fila de los botones, a la
+    // derecha (CSS: .fbtns .filters-tail).
     if (isMobile()) bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
     else { fbtns.append(tail); bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel); }
   } else {
@@ -802,8 +807,8 @@ function paintBGG() {
   else BGGV.games.forEach(g => grid.append(card(g)));
   const cnt = $('#bggCount'); if (cnt) cnt.textContent = `${BGGV.total.toLocaleString('es-AR')} juego${BGGV.total === 1 ? '' : 's'}`;
   const clr = $('#bggClear'); if (clr) clr.style.display = bggHasActiveFilters() ? 'inline-flex' : 'none';
-  const f = S.filters;   // celular: badges al día (en BGG el diseñador es chip aparte, no va en "Filtros")
-  syncGroupBadge('filtros', (f.players ? 1 : 0) + (f.time ? 1 : 0) + (f.weight ? 1 : 0));
+  const f = S.filters;   // mantener los badges al día tras repintar (incluye el diseñador, que en BGG
+  syncGroupBadge('filtros', activeSelectCount(f));   // va como chip DENTRO del panel Filtros → cuenta para el (N))
   syncGroupBadge('tipo', f.types.size);
   setupBGGInfinite();
 }

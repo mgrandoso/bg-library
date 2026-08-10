@@ -9,6 +9,22 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.12.2] — 2026-08-10 — Tablet vertical: pulidos de filtros y ficha
+### Changed
+- **Botones de filtro (Filtros/Tipo/Mecánicas) en tablet vertical** ahora se reparten en **partes
+  iguales** el espacio a la izquierda del contador (`flex:1 1 0`): los tres del mismo tamaño, ni
+  estirados a lo bruto ni mínimos. Afuera queda solo *Limpiar* + "N juegos".
+- **Chip de diseñador en BGG:** BGG no tiene combo de diseñador, así que el diseñador activo se
+  mostraba como chip suelto en la barra. Ahora va **dentro del panel Filtros**, en el lugar que
+  ocuparía el select de diseñador (como en Biblioteca/Wishlist).
+- **Ficha en tablet vertical:** los márgenes de arriba/abajo quedaban mucho mayores que los de los
+  costados (el modal topaba con `max-height:90vh` y se centraba dejando aire). Ahora usa `dvh` +
+  padding simétrico → **~22px parejos en los cuatro lados**.
+### Fixed
+- **BGG no marcaba en verde "Filtros (N)" al filtrar por diseñador:** `paintBGG` recontaba los filtros
+  activos a mano y se olvidaba del diseñador. Unificado con `activeSelectCount()` (que sí lo cuenta),
+  consistente con Biblioteca/Wishlist.
+
 ## [0.12.1] — 2026-08-10 — Tablet vertical: topbar y filtros afinados al ancho disponible
 ### Changed
 - **Topbar en tablet vertical:** vuelve la marca completa (dado + **Ludoteca** + subtítulo, que en el

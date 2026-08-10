@@ -350,16 +350,33 @@ img { display: block; }
 
 /* ===== Solo TABLET VERTICAL (641–1024 + portrait): hay ancho de sobra, soltamos las optimizaciones
    de celular en la barra de filtros —
-   · los 3 botones (Filtros/Tipo/Mecánicas) van a ancho natural, no estirados a toda la fila;
-   · "N juegos" + Limpiar suben a la MISMA fila de los botones, alineados a la derecha;
+   · los 3 botones (Filtros/Tipo/Mecánicas) se reparten en PARTES IGUALES el espacio a la izquierda
+     del tail (flex:1 1 0) → mismo tamaño los tres, sin estirar de más ni quedar mínimos;
+   · afuera SOLO Limpiar + "N juegos", a la derecha (el tail va natural al final de la fila);
    · el panel abierto pone los selects a 3 por fila (jugadores/duración/complejidad y, debajo,
      diseñador/orden), en vez de las 2-por-fila anchas del celular (cajas menos grandes).
    Va DESPUÉS del bloque compartido a propósito: gana por orden a igual especificidad. ===== */
 @media (min-width: 641px) and (max-width: 1024px) and (orientation: portrait) {
-  .fbtns > .chip { flex: 0 0 auto; }                             /* ancho natural: no estirar */
-  .fbtns .filters-tail { flex: 0 0 auto; margin-left: auto; }    /* contador + Limpiar a la derecha */
+  .fbtns > .chip { flex: 1 1 0; }                  /* los 3 iguales, reparten el espacio a la izquierda del tail */
+  /* OJO: nada de margin-left:auto en el tail. Con los botones creciendo (flex-grow), un margen auto
+     absorbería TODO el espacio libre ANTES que el flex-grow → los botones colapsarían a 0. El tail va
+     natural y, como los botones llenan el resto, queda igual pegado a la derecha. */
+  .fbtns .filters-tail { flex: 0 0 auto; }
   .fpanel > select { flex: 1 1 30%; }                            /* 3 selects por fila */
   .fpanel > .flt-designer { flex: 1 1 30%; max-width: none; }    /* diseñador entra en la grilla (no full-width) */
+
+  /* ficha: márgenes parejos arriba/abajo = costados (~22px). Sin esto, en fichas altas el modal se
+     topa con el max-height:90vh de base y, al centrarse, deja mucho más aire arriba/abajo que a los
+     lados. Uso dvh (alto real, robusto también en el Safari del iPad) + padding simétrico; el modal
+     llena el alto visible. Prefijado con #modalRoot para ganarle por especificidad a la base
+     .overlay/.modal (que va más abajo en el archivo). */
+  #modalRoot .overlay {
+    bottom: auto;
+    height: 100vh;    /* fallback iOS < 15.4 (sin dvh) */
+    height: 100dvh;   /* alto real: sube/baja con la barra de Safari */
+    padding: calc(env(safe-area-inset-top) + 22px) 22px calc(env(safe-area-inset-bottom) + 22px);
+  }
+  #modalRoot .modal { max-height: 100%; }   /* = alto visible − padding → márgenes parejos */
 }
 
 /* ---------------- layout ---------------- */
