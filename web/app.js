@@ -80,16 +80,24 @@ const S = {
 // pantalla, para saber si hay que recargar al volver a BGG tras tocar filtros en otra vista.
 const BGGV = { games: [], page: 0, total: 0, hasMore: false, loading: false, owner: 0, sig: null };
 
-/* ===== responsive: en celular la barra de filtros se agrupa en desplegables (Tipo/Filtros/
-   Mecánicas) y la nav pasa a solo-iconos. En desktop no cambia nada. Al cruzar el breakpoint
-   (rotar/redimensionar) repintamos para reconstruir la barra en el modo que corresponde. ===== */
+/* ===== responsive: el "layout general" (nav solo-iconos + barra de filtros agrupada en
+   desplegables Tipo/Filtros/Mecánicas) se usa en celular Y en tablet vertical. En tablet horizontal
+   y desktop se mantiene inline como siempre. La ficha y el Advisor NO cambian en tablet: siguen
+   como PC (2 columnas, descripciones sin colapsar) → esos siguen atados a isMobile(). Al cruzar
+   cualquier breakpoint (rotar/redimensionar) repintamos para reconstruir la barra que corresponde.
+   - isMobile()  = solo celular (≤640): ficha apilada, "(N)" del perfil oculto, Advisor "ver más".
+   - isCompact() = celular O tablet vertical: layout general compacto (nav iconos + filtros acordeón). */
 const mqMobile = window.matchMedia('(max-width: 640px)');
 function isMobile() { return mqMobile.matches; }
-mqMobile.addEventListener('change', () => {
+const mqCompact = window.matchMedia('(max-width: 640px), (min-width: 641px) and (max-width: 1024px) and (orientation: portrait)');
+function isCompact() { return mqCompact.matches; }
+function onBreakpointChange() {
   if (typeof fillOwnerSel === 'function' && S.owners) fillOwnerSel();   // "(N)" del perfil según plataforma
   if (coverObserver) { coverObserver.disconnect(); coverObserver = null; }  // recalcula el margen (2× viewport)
   if (typeof render === 'function') render();
-});
+}
+mqMobile.addEventListener('change', onBreakpointChange);
+mqCompact.addEventListener('change', onBreakpointChange);   // rotar tablet vertical↔horizontal reconstruye la barra
 // contador de filtros activos entre los selects (jugadores/duración/complejidad/diseñador);
 // el orden no cuenta (siempre tiene un valor). Sirve para el badge del botón "Filtros" en celular.
 function activeSelectCount(f) {
@@ -585,8 +593,8 @@ function renderFilters(kind) {
   clearBtn.style.display = hasActiveFilters() ? 'inline-flex' : 'none';
   const countTag = node('<span class="count-tag" id="countTag"></span>');
 
-  if (isMobile()) {
-    // celular: tres grupos colapsables (Filtros / Tipo / Mecánicas) + Limpiar/contador
+  if (isCompact()) {
+    // celular / tablet vertical: tres grupos colapsables (Filtros / Tipo / Mecánicas) + Limpiar/contador
     const gFiltros = filterGroup('filtros', '🎛', 'Filtros', activeSelectCount(f), [players, time, weight, dsel, sort, dirBtn]);
     const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
     const fbtns = node('<div class="fbtns"></div>');
@@ -739,8 +747,8 @@ function renderBGGFilters() {
   clearBtn.style.display = bggHasActiveFilters() ? 'inline-flex' : 'none';
   const countTag = node('<span class="count-tag" id="bggCount"></span>');
 
-  if (isMobile()) {
-    // celular: mismos tres grupos que Biblioteca (el diseñador va como chip en la fila de botones)
+  if (isCompact()) {
+    // celular / tablet vertical: mismos tres grupos que Biblioteca (el diseñador va como chip en la fila de botones)
     const gFiltros = filterGroup('filtros', '🎛', 'Filtros', activeSelectCount(f), [players, time, weight, sort, dirBtn]);
     const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
     const fbtns = node('<div class="fbtns"></div>');

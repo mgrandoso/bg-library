@@ -9,6 +9,21 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-08-10 — Modo tablet en vertical (chrome compacto como celular)
+### Added
+- **La tablet en vertical (portrait) ahora usa el "layout general" del celular:** la nav pasa a
+  **solo-iconos** y la barra de filtros se agrupa en tres desplegables (**Filtros / Tipo / Mecánicas**),
+  liberando la primera pantalla. La tablet en **horizontal** y el desktop siguen igual que siempre
+  (nav con texto + filtros inline).
+- Nuevo predicado `isCompact()` (celular **o** tablet vertical) que decide cómo construir la barra de
+  filtros, separado de `isMobile()` (solo celular). El CSS espeja la condición con una media query
+  `(max-width:640px), (min-width:641px) and (max-width:1024px) and (orientation:portrait)`.
+### Changed
+- La **ficha** y el **Advisor** **no cambian** en tablet: siguen como en PC (ficha en 2 columnas con la
+  barra *tengo/quiero* con texto; descripciones del Advisor sin colapsar). Lo específico de celular
+  (ficha apilada, barra a iconos, inputs a 16px anti-zoom, `overlay` con `dvh`) quedó acotado a `≤640px`.
+- Al rotar la tablet (vertical↔horizontal) la barra se reconstruye sola en el modo que corresponde.
+
 ## [0.11.5] — 2026-08-10 — Ajuste del margen inferior de la ficha en celular
 ### Changed
 - El margen **inferior** de la ficha en celular tenía +16px fijos que, sumados al `safe-area` del

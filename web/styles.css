@@ -193,10 +193,15 @@ img { display: block; }
 /* Nav a solo-iconos (tamaño del botón de Configuración) para que entren las 5 pestañas cómodas;
    y la barra de filtros colapsada en tres grupos (Filtros / Tipo / Mecánicas), con el buscador
    siempre visible. Solo afecta al teléfono: desktop y tablet quedan igual. */
-@media (max-width: 640px) {
-  /* en celular no tiene sentido una fila fija solo para la marca: dejamos solo el logo del dado,
-     pegado a la izquierda del perfil (sacamos "Ludoteca" y el subtítulo) → de 3 filas a 2 */
-  /* solo el logo del dado a la izquierda; oculto el wrapper del texto ("Ludoteca" + subtítulo).
+/* ===== Layout general compacto: CELULAR + TABLET VERTICAL =====
+   Comparten la "vista general": nav solo-iconos + barra de filtros en tres grupos colapsables
+   (Filtros/Tipo/Mecánicas). NO incluye la ficha ni el Advisor: en tablet esos siguen como PC (ficha
+   en 2 columnas, Advisor sin colapsar) → ver el bloque «solo celular» más abajo. Condición: celular
+   (≤640) O tablet en vertical (641–1024 + orientation:portrait). El JS lo espeja en isCompact(). */
+@media (max-width: 640px),
+       (min-width: 641px) and (max-width: 1024px) and (orientation: portrait) {
+  /* en pantallas angostas no tiene sentido una fila fija solo para la marca: dejamos solo el logo
+     del dado, pegado a la izquierda del perfil (sacamos "Ludoteca" y el subtítulo).
      .brand mantiene margin-right:auto (base) → el perfil/＋/⚙ se van pegados a la derecha. */
   .brand > div:not(.die) { display: none; }
   /* sin el "(N)" el selector se achicaría: le fijamos el ancho de siempre para que la barra no cambie */
@@ -213,20 +218,8 @@ img { display: block; }
      (verde). Con #main para ganar por especificidad sin depender del orden en el archivo. */
   #main { padding-top: 13px; }
   #main .filters { margin-bottom: 13px; }
-  /* buscador más alto y cómodo en el teléfono */
+  /* buscador más alto y cómodo (celular y tablet vertical) */
   .search { flex: 1 1 100%; padding: 15px 14px; }
-  /* iOS hace AUTO-ZOOM al enfocar un input/textarea con font-size < 16px, y deja la app zoomeada
-     (pasaba en el textarea del Advisor y en los formularios). 16px en TODOS los campos de texto del
-     teléfono lo evita. Los <select> no zoomean (abren picker nativo) → no hace falta tocarlos y así
-     no rompo el ancho del selector de perfil / filtros.
-     Prefijado con `#app`/`#modalRoot` para GANAR en especificidad: reglas como `.freetext textarea`
-     (Advisor, en #app) y `.field input` (formularios, en #modalRoot) son clase+elemento y van más
-     abajo en el archivo → un `input, textarea` pelado perdía. */
-  #app input, #app textarea,
-  #modalRoot input, #modalRoot textarea { font-size: 16px; }
-  /* al subir a 16px el placeholder-ejemplo del Advisor ya no entraba en 120px → más alto en celular
-     (con #app para ganarle a la base `.freetext textarea`). */
-  #app .freetext textarea { min-height: 160px; }
   /* los tres botones toman su ancho natural y se reparten la fila (flex:1 auto): entran enteros
      con su icono, sin cortar. Sacamos el ▾ (el panel se abre a la vista) para ganar ancho y que
      "(N)" nunca los desborde ni los mande a otro renglón. */
@@ -247,6 +240,24 @@ img { display: block; }
   /* Mecánicas desplegado se ve igual que Tipo: chips sueltos, sin la caja punteada oscura.
      Va con `.filters` para ganarle en especificidad a la regla base de .mech-panel. */
   .filters .mech-panel { flex: 1 1 100%; padding: 2px 0; border: 0; background: none; gap: 10px; margin-top: 0; }
+}
+
+/* ===== Solo CELULAR (≤640): lo que NO se comparte con tablet — ficha apilada en 1 columna, barra
+   de estado/tabs a iconos, inputs a 16px (anti auto-zoom de iOS), Advisor compacto y el overlay que
+   encaja en el área visible de Safari. En tablet la ficha va en 2 columnas y el Advisor como PC. ===== */
+@media (max-width: 640px) {
+  /* iOS hace AUTO-ZOOM al enfocar un input/textarea con font-size < 16px, y deja la app zoomeada
+     (pasaba en el textarea del Advisor y en los formularios). 16px en TODOS los campos de texto del
+     teléfono lo evita. Los <select> no zoomean (abren picker nativo) → no hace falta tocarlos y así
+     no rompo el ancho del selector de perfil / filtros. (iPad NO hace este zoom → no va en tablet.)
+     Prefijado con `#app`/`#modalRoot` para GANAR en especificidad: reglas como `.freetext textarea`
+     (Advisor, en #app) y `.field input` (formularios, en #modalRoot) son clase+elemento y van más
+     abajo en el archivo → un `input, textarea` pelado perdía. */
+  #app input, #app textarea,
+  #modalRoot input, #modalRoot textarea { font-size: 16px; }
+  /* al subir a 16px el placeholder-ejemplo del Advisor ya no entraba en 120px → más alto en celular
+     (con #app para ganarle a la base `.freetext textarea`). */
+  #app .freetext textarea { min-height: 160px; }
 
   /* Advisor: las dos tarjetas de modo entran juntas en el ancho del teléfono → achicamos padding
      y tipografía para que se lean cómodas sin apilarse. */
