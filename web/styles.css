@@ -302,10 +302,14 @@ img { display: block; }
     bottom: auto;             /* libero el bottom del inset:0 base para que mande `height` */
     height: 100vh;            /* fallback iOS < 15.4 (sin dvh) */
     height: 100dvh;           /* alto dinámico: sube/baja con la barra de Safari */
+    /* Margen fijo de 16px arriba y abajo → la ficha nunca toca los bordes y siempre se ve la ✕ /
+       la barra tengo-quiero. OJO: en Safari normal `safe-area-inset-top` suele ser 0 (la barra de
+       direcciones NO cuenta como safe-area), por eso el margen tiene que ser fijo, no depender del
+       inset; el env() sólo SUMA cuando hay notch/Dynamic Island/home-bar. */
     padding:
-      calc(env(safe-area-inset-top) + 8px)
-      10px
-      calc(env(safe-area-inset-bottom) + 8px);
+      calc(env(safe-area-inset-top) + 16px)
+      12px
+      calc(env(safe-area-inset-bottom) + 16px);
   }
   #modalRoot .modal { max-height: 100%; }              /* = 100dvh − safe-areas → siempre entra entero */
   #modalRoot .modal.sheet.data-hub { height: 100%; }   /* alto fijo del hub, pero acotado a lo visible */

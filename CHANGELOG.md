@@ -16,8 +16,10 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
   quedaban tapadas, y había que cerrar, scrollear un poco y reabrir para verla bien. Causa: iOS mide
   `vh` e `inset:0` contra el viewport **grande** (barra colapsada) y con `viewport-fit=cover` el
   contenido se mete bajo el chrome del navegador. Ahora, **solo en celular**, la caja del overlay usa
-  **`dvh`** (alto dinámico que sigue el estado real de la barra) + **`env(safe-area-inset-*)`** en el
-  padding (no se mete bajo Dynamic Island ni toolbar) → el modal encaja siempre en el área visible.
+  **`dvh`** (alto dinámico que sigue el estado real de la barra) + un **margen fijo de 16px** arriba y
+  abajo (más `env(safe-area-inset-*)` cuando hay Dynamic Island / home-bar; en Safari la barra de
+  direcciones no cuenta como safe-area, así que el margen fijo es lo que garantiza el aire) → el modal
+  nunca toca los bordes y siempre se ven la ✕ y la barra *tengo/quiero*.
 
 ## [0.11.2] — 2026-08-10 — "Ver más" del Advisor solo en celular
 ### Changed
