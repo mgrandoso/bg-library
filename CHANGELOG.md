@@ -9,6 +9,15 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.12.4] — 2026-08-10 — Hotfix: PC y tablet horizontal rotos por llave faltante
+### Fixed
+- **Regresión de v0.12.3:** al cerrar el bloque `@media` de tablet vertical faltaba la llave `}`, así que
+  `main`, `.filters`, `.grid` y todo el resto del layout quedaron **anidados** dentro de esa media query.
+  Consecuencia: en **PC y tablet horizontal** (que no cumplen la condición portrait) la grilla, el
+  `max-width` y el centrado dejaban de aplicar → filtros arriba de todo, topbar superpuesta y portadas a
+  sangre completa. Tablet vertical no se veía afectado porque sí cumplía la condición. Se agrega la `}` que
+  faltaba: el CSS vuelve a cargar sus 372 reglas (cargaba solo 37) y PC/horizontal recuperan el layout.
+
 ## [0.12.3] — 2026-08-10 — Tablet vertical: barras del Panel más legibles
 ### Changed
 - **Panel en tablet vertical:** en las tarjetas angostas de distribución ("Por tipo de juego / Por

@@ -385,6 +385,7 @@ img { display: block; }
      "Phil Walker-Harding" que se cortarían). 104px = "Jóvenes (9–12)" (~96px) + margen para que no la
      recorte el ellipsis; la barra queda igual bastante más ancha que los 130px originales. */
   #main .panel[style*="span 4"] .hbar-lbl { width: 104px; }
+}
 
 /* ---------------- layout ---------------- */
 main { max-width: var(--maxw); margin: 0 auto; padding: 26px 22px 80px; }
