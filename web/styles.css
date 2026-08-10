@@ -194,6 +194,14 @@ img { display: block; }
    y la barra de filtros colapsada en tres grupos (Filtros / Tipo / Mecánicas), con el buscador
    siempre visible. Solo afecta al teléfono: desktop y tablet quedan igual. */
 @media (max-width: 640px) {
+  /* en celular no tiene sentido una fila fija solo para la marca: dejamos solo el logo del dado,
+     pegado a la izquierda del perfil (sacamos "Ludoteca" y el subtítulo) → de 3 filas a 2 */
+  /* solo el logo del dado a la izquierda; oculto el wrapper del texto ("Ludoteca" + subtítulo).
+     .brand mantiene margin-right:auto (base) → el perfil/＋/⚙ se van pegados a la derecha. */
+  .brand > div:not(.die) { display: none; }
+  /* sin el "(N)" el selector se achicaría: le fijamos el ancho de siempre para que la barra no cambie */
+  #ownerSel { min-width: 126px; }
+
   .nav { flex: 1 1 100%; gap: 6px; padding: 5px; }
   /* iconos repartidos a lo ancho: cada botón se estira (flex:1) → targets grandes y separados */
   .nav button { flex: 1; padding: 11px 0; border-radius: 9px; display: grid; place-items: center; }

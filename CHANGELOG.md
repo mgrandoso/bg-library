@@ -9,6 +9,14 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-08-10 — Topbar celular más compacto
+### Changed
+- En celular la barra superior pasa de **3 filas a 2**: se oculta el texto "Ludoteca" y el
+  subtítulo → queda solo el **logo del dado** a la izquierda, con el perfil/＋/⚙ alineados a la
+  derecha. Gana altura útil para el contenido. En desktop no cambia.
+- El **selector de perfil** en celular ya no muestra el "(N)" de juegos (queda "👤 Vos"); mantiene
+  el ancho para que la barra no se achique. En desktop sigue mostrando el conteo.
+
 ## [0.10.0] — 2026-08-10 — Vista celular (responsive)
 Rediseño de la experiencia en teléfono (probado a mano sobre iPhone 15 Pro). Todo **front-end**:
 el desktop no cambia y no hay carga extra en el server.

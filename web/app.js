@@ -85,7 +85,10 @@ const BGGV = { games: [], page: 0, total: 0, hasMore: false, loading: false, own
    (rotar/redimensionar) repintamos para reconstruir la barra en el modo que corresponde. ===== */
 const mqMobile = window.matchMedia('(max-width: 640px)');
 function isMobile() { return mqMobile.matches; }
-mqMobile.addEventListener('change', () => { if (typeof render === 'function') render(); });
+mqMobile.addEventListener('change', () => {
+  if (typeof fillOwnerSel === 'function' && S.owners) fillOwnerSel();   // "(N)" del perfil según plataforma
+  if (typeof render === 'function') render();
+});
 // contador de filtros activos entre los selects (jugadores/duración/complejidad/diseñador);
 // el orden no cuenta (siempre tiene un valor). Sirve para el badge del botón "Filtros" en celular.
 function activeSelectCount(f) {
@@ -382,9 +385,15 @@ function renderSafeBox(container) {
 async function loadOwners() {
   const d = await api('/owners'); S.owners = d.owners;
   if (!S.owner) S.owner = (S.owners.find(o => o.is_me) || S.owners[0]).id;
-  const sel = $('#ownerSel');
+  fillOwnerSel();
+}
+// En celular no mostramos el "(N)" de juegos en el selector de perfil (lo pidió el usuario);
+// el ancho de la barra se mantiene por min-width en CSS para que no se achique.
+function fillOwnerSel() {
+  const sel = $('#ownerSel'); if (!sel) return;
+  const mob = isMobile();
   sel.innerHTML = S.owners.map(o =>
-    `<option value="${o.id}">${o.is_me ? '👤 ' : '👥 '}${esc(o.name)} (${o.own_count})</option>`).join('');
+    `<option value="${o.id}">${o.is_me ? '👤 ' : '👥 '}${esc(o.name)}${mob ? '' : ` (${o.own_count})`}</option>`).join('');
   sel.value = S.owner;
 }
 async function loadGames() {
