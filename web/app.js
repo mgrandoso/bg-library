@@ -450,6 +450,9 @@ function renderCollection(kind) {
   const wrap = node('<div class="view"></div>');
   wrap.append(renderFilters(kind));
   const list = currentList(kind);
+  // el contador de visibles también al pintar la vista (no solo al tocar un filtro): así al
+  // cambiar de tab con un filtro ya activo, el número aparece igual. (refreshGrid lo re-setea luego)
+  wrap.querySelector('#countTag').textContent = `${list.length} juego${list.length === 1 ? '' : 's'}`;
   if (!list.length) {
     wrap.append(node(`<div class="empty"><div class="ic">🎲</div><p>No hay juegos que coincidan.</p></div>`));
     return wrap;

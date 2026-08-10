@@ -9,6 +9,12 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-08-10 — Contador de visibles al cambiar de vista
+### Fixed
+- El **contador de juegos visibles** solo aparecía en la vista donde tocabas el filtro; al cambiar
+  de tab (con el filtro ya compartido activo) filtraba bien pero no mostraba el número. Ahora se
+  pinta también al entrar a la vista, no solo al modificar un filtro.
+
 ## [0.9.0] — 2026-08-10 — Filtros compartidos + filtro por diseñador en BGG
 ### Added
 - **Filtro por diseñador en BGG** (server-side): no hay combo —serían ~2.800 opciones en el
