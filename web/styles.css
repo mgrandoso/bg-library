@@ -169,6 +169,7 @@ img { display: block; }
 }
 .nav button:hover { color: var(--ink); }
 .nav button.active { background: var(--brass); color: var(--brass-ink); box-shadow: var(--shadow-card); }
+.nav-ic { display: none; }   /* en desktop la nav es de texto; el icono aparece solo en celular */
 
 .top-actions { display: flex; gap: 8px; align-items: center; }
 .icon-btn {
@@ -188,6 +189,96 @@ img { display: block; }
   .filters > select.flt-designer { max-width: 170px; }
 }
 
+/* ---------------- celular (≤640px) ---------------- */
+/* Nav a solo-iconos (tamaño del botón de Configuración) para que entren las 5 pestañas cómodas;
+   y la barra de filtros colapsada en tres grupos (Filtros / Tipo / Mecánicas), con el buscador
+   siempre visible. Solo afecta al teléfono: desktop y tablet quedan igual. */
+@media (max-width: 640px) {
+  .nav { flex: 1 1 100%; gap: 6px; padding: 5px; }
+  /* iconos repartidos a lo ancho: cada botón se estira (flex:1) → targets grandes y separados */
+  .nav button { flex: 1; padding: 11px 0; border-radius: 9px; display: grid; place-items: center; }
+  .nav button .nav-tx { display: none; }
+  .nav button .nav-ic { display: block; width: 22px; height: 22px; }
+
+  .filters { gap: 8px 8px; padding: 12px; }
+  /* igualar las separaciones al gap entre tarjetas (13px): nav→filtros (rojo) y filtros→grilla
+     (verde). Con #main para ganar por especificidad sin depender del orden en el archivo. */
+  #main { padding-top: 13px; }
+  #main .filters { margin-bottom: 13px; }
+  /* buscador más alto y cómodo en el teléfono; 16px evita el zoom automático de iOS al enfocar */
+  .search { flex: 1 1 100%; padding: 15px 14px; }
+  .search input { font-size: 16px; }
+  /* los tres botones toman su ancho natural y se reparten la fila (flex:1 auto): entran enteros
+     con su icono, sin cortar. Sacamos el ▾ (el panel se abre a la vista) para ganar ancho y que
+     "(N)" nunca los desborde ni los mande a otro renglón. */
+  .fbtns { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px; }
+  .fbtns > .chip { flex: 1 1 auto; min-width: 0; justify-content: center; white-space: nowrap;
+    font-size: 13px; padding: 9px 8px; }
+  .fbtns .chip.mech-btn { border-style: solid; }   /* sin el marco punteado (eso es del desktop) */
+  /* la flechita ▾ indica desplegar; si el grupo tiene filtro activo aparece "(N)" y se va la
+     flecha → nunca conviven, así el ancho no desborda ni se corta el texto */
+  .fbtns .chip.active .caret { display: none; }
+  .fpanel { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 10px; padding: 2px 0; }
+  .fpanel[hidden] { display: none; }
+  .fpanel > select { flex: 1 1 44%; min-width: 0; max-width: none; }
+  .fpanel > .flt-designer { flex: 1 1 100%; max-width: none; }
+  .fpanel > .sortdir { flex: 0 0 auto; }
+  .fpanel .chip { flex: 0 0 auto; }
+  .filters-tail { flex: 1 1 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; }
+  /* Mecánicas desplegado se ve igual que Tipo: chips sueltos, sin la caja punteada oscura.
+     Va con `.filters` para ganarle en especificidad a la regla base de .mech-panel. */
+  .filters .mech-panel { flex: 1 1 100%; padding: 2px 0; border: 0; background: none; gap: 10px; margin-top: 0; }
+
+  /* Advisor: las dos tarjetas de modo entran juntas en el ancho del teléfono → achicamos padding
+     y tipografía para que se lean cómodas sin apilarse. */
+  .mode-card { padding: 16px 10px; }
+  .mode-card .ic { font-size: 30px; }
+  .mode-card h3 { font-size: 17px; margin: 6px 0 3px; }
+  .mode-card p { font-size: 12px; }
+
+  /* ---- ficha en celular: una sola columna, reordenada (data-fb) ---- */
+  /* display:contents aplana detail-side/detail-main → sus bloques pasan a ser ítems del flex del
+     hero y se reordenan con `order`. En desktop nada de esto aplica (siguen las dos columnas). */
+  /* `.modal` para ganarle en especificidad a la base (grid con gap 24) y al bloque ≤720 */
+  .modal .detail-hero { display: flex; flex-direction: column; gap: 8px; padding: 20px; }
+  .detail-hero > .detail-side, .detail-hero > .detail-main { display: contents; }
+  .modal .detail-hero .cover { max-width: 240px; margin: 0 auto 4px; }   /* portada arriba, centrada */
+  .detail-hero [data-fb] { margin-top: 0; }
+  /* que el espaciado lo mande el gap (8px) y no se sumen márgenes propios de cada bloque */
+  .modal [data-fb="tags"] { margin-top: 0 !important; }   /* pisa el margin inline del template */
+  .modal [data-fb="desc"] { margin-bottom: 0; }
+  .modal [data-fb="specs"] { margin-bottom: 0; }
+  .modal [data-fb="lang"] { margin-top: 0 !important; }   /* inline en el template */
+  .modal .detail-hero [data-fb] > .section-h:first-child { margin-top: 2px; }
+  [data-fb="cover"]      { order: 1; }
+  [data-fb="title"]      { order: 2; }
+  [data-fb="sub"]        { order: 3; }
+  [data-fb="tags"]       { order: 4; }
+  [data-fb="desc"]       { order: 5; }
+  [data-fb="specs"]      { order: 6; }
+  [data-fb="esname"]     { order: 7; }
+  [data-fb="players"]    { order: 8; }
+  [data-fb="lang"]       { order: 9; }
+  [data-fb="designers"]  { order: 10; }
+  [data-fb="categories"] { order: 11; }
+  [data-fb="mechanics"]  { order: 12; }
+  [data-fb="expansions"] { order: 13; }
+  [data-fb="owners"]     { order: 14; }
+  [data-fb="bgg"]        { order: 15; }
+
+  /* ---- barra de estado: más compacta y con solo iconos (no ocupa dos renglones) ----
+     Prefijadas con `.modal` para ganarle en especificidad a las reglas base (que van más abajo). */
+  .modal .state-bar { padding: 10px 14px; gap: 8px; }
+  .modal .seg { flex: 1; }
+  .modal .seg button { flex: 1; padding: 9px 0; font-size: 16px; }
+  .modal .seg .seg-tx { display: none; }   /* solo el icono: 📦 / ⭐ / ✕ */
+
+  /* tabs de Configuración: 5 no entran con texto → solo iconos, más grandes y separados */
+  .modal .tabs { gap: 6px; padding: 5px; }
+  .modal .tabs button { padding: 11px 0; font-size: 19px; }
+  .modal .tabs .tab-tx { display: none; }
+}
+
 /* ---------------- layout ---------------- */
 main { max-width: var(--maxw); margin: 0 auto; padding: 26px 22px 80px; }
 .view { animation: fade .35s ease; }
@@ -201,7 +292,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 26px 22px 80px; }
 }
 .search {
   flex: 1 1 240px; display: flex; align-items: center; gap: 9px;
-  background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px;
 }
 .search input { border: 0; background: transparent; color: var(--ink); font-size: 14.5px; width: 100%; outline: none; }
 .search svg { flex: none; opacity: .5; }
@@ -230,8 +321,8 @@ select, .mini-select {
 /* Grupo "Mecánicas" (ítem 9): botón colapsable ortogonal a los 8 subdominios (borde punteado) +
    panel de chips en fila aparte. */
 .chip.mech-btn { --c: var(--brass-2); border-style: dashed; }
-.chip.mech-btn .caret { transition: transform .15s; display: inline-block; }
-.chip.mech-btn.open .caret { transform: rotate(180deg); }
+.chip.mech-btn .caret, .chip.fgroup-btn .caret { transition: transform .15s; display: inline-block; }
+.chip.mech-btn.open .caret, .chip.fgroup-btn.open .caret { transform: rotate(180deg); }
 .mech-panel { display: flex; gap: 7px; flex-wrap: wrap; width: 100%; margin-top: 2px;
   padding: 10px; border: 1px dashed var(--line); border-radius: 12px; background: var(--bg-2); }
 .mech-panel[hidden] { display: none; }   /* el CSS de arriba pisa el UA [hidden]{display:none} */
@@ -308,10 +399,15 @@ select, .mini-select {
   max-width: 860px; width: 100%; max-height: 90vh; overflow: auto; box-shadow: var(--shadow-lift);
   position: relative;
 }
+/* Cerrar: sticky para que te siga mientras scrolleás la ficha (no hay que volver arriba).
+   Margen negativo abajo → no reserva alto, sigue solapando arriba-derecha como cuando era absolute.
+   Fondo esmerilado (semitransparente + blur) para que se lea sobre cualquier contenido. */
 .modal .close {
-  position: absolute; top: 14px; right: 14px; z-index: 3;
-  width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--bg) 60%, transparent); color: var(--ink); font-size: 18px;
+  position: sticky; top: 14px; z-index: 5; display: block;
+  margin: 14px 14px -50px auto;
+  width: 36px; height: 36px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
+  background: color-mix(in srgb, var(--surface) 55%, transparent); backdrop-filter: blur(8px);
+  color: var(--ink); font-size: 18px; box-shadow: var(--shadow-card);
 }
 .detail-hero { display: grid; grid-template-columns: 260px 1fr; gap: 24px; padding: 24px; }
 .detail-side { display: flex; flex-direction: column; gap: 20px; }
@@ -538,7 +634,7 @@ select, .mini-select {
 
 .engine-switch { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--bg-2); border: 1px solid var(--line-soft); border-radius: 12px; margin: 18px 0; flex-wrap: wrap; }
 .freetext { width: 100%; margin-top: 10px; }
-.freetext textarea { width: 100%; background: var(--bg-2); border: 1px solid var(--line); border-radius: 11px; padding: 12px; color: var(--ink); font-family: inherit; font-size: 14px; resize: vertical; min-height: 64px; }
+.freetext textarea { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 12px; color: var(--ink); font-family: inherit; font-size: 14px; resize: vertical; min-height: 120px; }
 .freetext.disabled { opacity: .4; pointer-events: none; }
 
 .rec-card { display: grid; grid-template-columns: 130px 1fr; gap: 18px; background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow-card); animation: fade .4s; transition: .18s; position: relative; }
@@ -651,6 +747,7 @@ select, .mini-select {
   background: var(--surface); border: 1px solid var(--brass); color: var(--ink);
   padding: 12px 20px; border-radius: 12px; box-shadow: var(--shadow-lift); z-index: 90;
   opacity: 0; transition: .25s; font-weight: 600; font-size: 14px;
+  text-align: center; max-width: min(90vw, 420px);
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .spinner { width: 34px; height: 34px; border: 3px solid var(--line); border-top-color: var(--brass); border-radius: 50%; animation: spin .8s linear infinite; margin: 40px auto; }
@@ -673,7 +770,8 @@ select, .mini-select {
   .stat-grid .panel { grid-column: span 1 !important; }
   .hi-grid { grid-template-columns: repeat(3, 1fr); }
   .hbar-lbl { width: 96px; }
-  .mode-switch { flex-direction: column; align-items: stretch; }
+  /* "¿Qué saco hoy?" y "¿Qué compro?" quedan en un solo renglón (como en PC), no apiladas */
+  .mode-switch { gap: 10px; }
   .mode-card { max-width: none; }
 }
 

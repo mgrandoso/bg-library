@@ -80,6 +80,52 @@ const S = {
 // pantalla, para saber si hay que recargar al volver a BGG tras tocar filtros en otra vista.
 const BGGV = { games: [], page: 0, total: 0, hasMore: false, loading: false, owner: 0, sig: null };
 
+/* ===== responsive: en celular la barra de filtros se agrupa en desplegables (Tipo/Filtros/
+   Mecánicas) y la nav pasa a solo-iconos. En desktop no cambia nada. Al cruzar el breakpoint
+   (rotar/redimensionar) repintamos para reconstruir la barra en el modo que corresponde. ===== */
+const mqMobile = window.matchMedia('(max-width: 640px)');
+function isMobile() { return mqMobile.matches; }
+mqMobile.addEventListener('change', () => { if (typeof render === 'function') render(); });
+// contador de filtros activos entre los selects (jugadores/duración/complejidad/diseñador);
+// el orden no cuenta (siempre tiene un valor). Sirve para el badge del botón "Filtros" en celular.
+function activeSelectCount(f) {
+  return (f.players ? 1 : 0) + (f.time ? 1 : 0) + (f.weight ? 1 : 0) + (f.designer ? 1 : 0);
+}
+// grupo colapsable de filtros para celular (mismo mecanismo que la faceta Mecánicas): un botón
+// con conteo de activos + un panel full-width que se muestra/oculta. Devuelve {button, panel}.
+// `id` permite refrescar el badge sin reconstruir la barra (ver syncGroupBadge).
+function filterGroup(id, icon, label, count, bodyEls) {
+  const button = node(`<button type="button" class="chip fgroup-btn ${count ? 'active' : ''}" data-grp="${id}"><span class="fg-lbl">${icon} ${esc(label)}${count ? ` (${count})` : ''}</span> <span class="caret">▾</span></button>`);
+  button.dataset.icon = icon; button.dataset.label = label;
+  const panel = node('<div class="fpanel" hidden></div>');
+  bodyEls.forEach(el => panel.append(el));
+  button.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    button.classList.toggle('open', !panel.hidden);
+  });
+  return { button, panel };
+}
+// acordeón (celular): un solo grupo abierto a la vez. Cada grupo ya togglea su propio panel al
+// hacer click; acá, después de ese toggle, cerramos los demás. Así abrir uno colapsa al resto y
+// volver a tocar el abierto lo cierra (queda todo colapsado).
+function wireAccordion(groups) {
+  groups.forEach(g => g.button.addEventListener('click', () => {
+    groups.forEach(o => {
+      if (o === g) return;
+      o.panel.hidden = true;
+      o.button.classList.remove('open');
+    });
+  }));
+}
+// actualiza el badge "(N)" y el resaltado de un grupo sin repintar la barra. No-op en desktop
+// (los botones de grupo no existen). Se llama donde ya refrescamos contador/limpiar.
+function syncGroupBadge(id, count) {
+  const btn = document.querySelector(`.fgroup-btn[data-grp="${id}"]`);
+  if (!btn) return;
+  btn.classList.toggle('active', !!count);
+  btn.querySelector('.fg-lbl').textContent = `${btn.dataset.icon} ${btn.dataset.label}${count ? ` (${count})` : ''}`;
+}
+
 /* ================= arranque ================= */
 init();
 async function init() {
@@ -482,15 +528,12 @@ function renderFilters(kind) {
     else if (f.sort === 'fit') f.sort = 'rank';
     render();   // rehace la barra para mostrar/ocultar la opción de orden por ajuste
   });
-  bar.append(players);
 
   const time = node(`<select title="Duración"><option value="">Duración</option><option value="short" ${f.time === 'short' ? 'selected' : ''}>Corto (&lt;30m)</option><option value="mid" ${f.time === 'mid' ? 'selected' : ''}>Medio (30–89m)</option><option value="long" ${f.time === 'long' ? 'selected' : ''}>Largo (90m+)</option></select>`);
   time.addEventListener('change', e => { f.time = e.target.value; refreshGrid(kind); });
-  bar.append(time);
 
   const weight = node(`<select title="Complejidad"><option value="">Complejidad</option><option value="light" ${f.weight === 'light' ? 'selected' : ''}>Liviana</option><option value="mid" ${f.weight === 'mid' ? 'selected' : ''}>Media</option><option value="heavy" ${f.weight === 'heavy' ? 'selected' : ''}>Pesada</option></select>`);
   weight.addEventListener('change', e => { f.weight = e.target.value; refreshGrid(kind); });
-  bar.append(weight);
 
   // designers presentes en esta vista; si hay un diseñador activo que no está (p. ej. vino de un
   // click en BGG), lo agrego igual para que el combo lo muestre seleccionado y se pueda quitar.
@@ -498,14 +541,12 @@ function renderFilters(kind) {
   if (f.designer && !designers.includes(f.designer)) designers.unshift(f.designer);
   const dsel = node(`<select class="flt-designer" title="Diseñador"><option value="">Diseñador</option>${designers.map(d => `<option ${f.designer === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>`);
   dsel.addEventListener('change', e => { f.designer = e.target.value; refreshGrid(kind); });
-  bar.append(dsel);
 
   const sortOpts = sortOptsFor(kind === 'wishlist' ? 'wishlist' : 'library', f);
   const validSorts = sortOpts.map(o => o[0]);
   if (!validSorts.includes(f.sort)) f.sort = validSorts[0];        // criterio no válido para esta vista -> default
   const sort = node(`<select title="Ordenar por">${sortOpts.map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>Orden: ${l}</option>`).join('')}</select>`);
   sort.addEventListener('change', e => { f.sort = e.target.value; refreshGrid(kind); });
-  bar.append(sort);
 
   const dirBtn = node(`<button class="mini-select sortdir" title="Invertir orden">${f.sortDir === 1 ? '↓' : '↑'}</button>`);
   dirBtn.addEventListener('click', () => {
@@ -515,27 +556,40 @@ function renderFilters(kind) {
     refreshGrid(kind);
   });
   dirBtn.classList.toggle('flipped', f.sortDir === -1);
-  bar.append(dirBtn);
 
-  // chips de tipo (8 subdominios) + facet Mecánicas + Limpiar + contador al final de esta fila
-  const chips = node('<div class="type-chips"></div>');
-  Object.keys(SUBDOMAIN).forEach(s => {
+  // chips de tipo (8 subdominios) y faceta Mecánicas (ambos reusables en las dos ramas)
+  const typeChips = Object.keys(SUBDOMAIN).map(s => {
     const c = node(`<button class="chip ${f.types.has(s) ? 'active' : ''}" style="--c:${typeColor(s)}"><span class="dot"></span>${typeEs(s)}</button>`);
     c.addEventListener('click', () => { f.types.has(s) ? f.types.delete(s) : f.types.add(s); c.classList.toggle('active'); refreshGrid(kind); });
-    chips.append(c);
+    return c;
   });
   const mech = mechFacet(f.mechanics, () => refreshGrid(kind));   // grupo Mecánicas (colapsable)
-  chips.append(mech.button);
   const clearBtn = node('<button class="chip clear-filters" id="clearFilters">✕ Limpiar filtros</button>');
   clearBtn.addEventListener('click', () => {
     S.filters = { q: '', types: new Set(), mechanics: new Set(), players: 0, time: '', weight: '', designer: '', sort: f.sort === 'fit' ? 'rank' : f.sort, sortDir: f.sortDir };
     render();
   });
   clearBtn.style.display = hasActiveFilters() ? 'inline-flex' : 'none';
-  chips.append(clearBtn);                                        // al lado de los tags
-  chips.append(node(`<span class="count-tag" id="countTag"></span>`));  // al margen derecho
-  bar.append(chips);
-  bar.append(mech.panel);                                        // fila aparte, colapsable
+  const countTag = node('<span class="count-tag" id="countTag"></span>');
+
+  if (isMobile()) {
+    // celular: tres grupos colapsables (Filtros / Tipo / Mecánicas) + Limpiar/contador
+    const gFiltros = filterGroup('filtros', '🎛', 'Filtros', activeSelectCount(f), [players, time, weight, dsel, sort, dirBtn]);
+    const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
+    const fbtns = node('<div class="fbtns"></div>');
+    fbtns.append(gFiltros.button, gTipo.button, mech.button);
+    wireAccordion([gFiltros, gTipo, mech]);   // un solo grupo abierto a la vez
+    const tail = node('<div class="filters-tail"></div>');
+    tail.append(clearBtn, countTag);
+    bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
+  } else {
+    // desktop: todo inline, como siempre
+    bar.append(players, time, weight, dsel, sort, dirBtn);
+    const chips = node('<div class="type-chips"></div>');
+    typeChips.forEach(c => chips.append(c));
+    chips.append(mech.button, clearBtn, countTag);
+    bar.append(chips, mech.panel);
+  }
   return bar;
 }
 
@@ -549,6 +603,8 @@ function refreshGrid(kind) {
   const old = wrap.querySelector('.grid, .empty'); if (old) old.remove();
   const tag = $('#countTag'); if (tag) tag.textContent = `${list.length} juego${list.length === 1 ? '' : 's'}`;
   const cb = $('#clearFilters'); if (cb) cb.style.display = hasActiveFilters() ? 'inline-flex' : 'none';
+  syncGroupBadge('filtros', activeSelectCount(S.filters));   // celular: mantener badges al día
+  syncGroupBadge('tipo', S.filters.types.size);
   if (!list.length) { wrap.append(node(`<div class="empty"><div class="ic">🎲</div><p>No hay juegos que coincidan.</p></div>`)); return; }
   const grid = node('<div class="grid"></div>');
   list.forEach(g => grid.append(card(g)));
@@ -630,20 +686,16 @@ function renderBGGFilters() {
     else if (f.sort === 'fit') f.sort = 'rank';
     renderBGG($('#main'));   // rehace la barra (muestra/oculta "fit") y recarga server-side
   });
-  bar.append(players);
 
   const time = node(`<select title="Duración"><option value="">Duración</option><option value="short" ${f.time === 'short' ? 'selected' : ''}>Corto (&lt;30m)</option><option value="mid" ${f.time === 'mid' ? 'selected' : ''}>Medio (30–89m)</option><option value="long" ${f.time === 'long' ? 'selected' : ''}>Largo (90m+)</option></select>`);
   time.addEventListener('change', e => { f.time = e.target.value; bggReload(); });
-  bar.append(time);
 
   const weight = node(`<select title="Complejidad"><option value="">Complejidad</option><option value="light" ${f.weight === 'light' ? 'selected' : ''}>Liviana</option><option value="mid" ${f.weight === 'mid' ? 'selected' : ''}>Media</option><option value="heavy" ${f.weight === 'heavy' ? 'selected' : ''}>Pesada</option></select>`);
   weight.addEventListener('change', e => { f.weight = e.target.value; bggReload(); });
-  bar.append(weight);
 
   const sortOpts = sortOptsFor('bgg', f);
   const sort = node(`<select title="Ordenar por">${sortOpts.map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>Orden: ${l}</option>`).join('')}</select>`);
   sort.addEventListener('change', e => { f.sort = e.target.value; bggReload(); });
-  bar.append(sort);
 
   const dirBtn = node(`<button class="mini-select sortdir ${f.sortDir === -1 ? 'flipped' : ''}" title="Invertir orden">${f.sortDir === 1 ? '↓' : '↑'}</button>`);
   dirBtn.addEventListener('click', () => {
@@ -652,22 +704,19 @@ function renderBGGFilters() {
     dirBtn.classList.toggle('flipped', f.sortDir === -1);
     bggReload();
   });
-  bar.append(dirBtn);
 
-  const chips = node('<div class="type-chips"></div>');
-  Object.keys(SUBDOMAIN).forEach(s => {
+  const typeChips = Object.keys(SUBDOMAIN).map(s => {
     const c = node(`<button class="chip ${f.types.has(s) ? 'active' : ''}" style="--c:${typeColor(s)}"><span class="dot"></span>${typeEs(s)}</button>`);
     c.addEventListener('click', () => { f.types.has(s) ? f.types.delete(s) : f.types.add(s); c.classList.toggle('active'); bggReload(); });
-    chips.append(c);
+    return c;
   });
   const mech = mechFacet(f.mechanics, bggReload);   // grupo Mecánicas (colapsable), server-side
-  chips.append(mech.button);
   // BGG no tiene combo de diseñador (serían ~2800 opciones): el filtro se activa al clickear un
   // diseñador en una ficha. Si está activo, lo mostramos como chip removible.
+  let dchip = null;
   if (f.designer) {
-    const dchip = node(`<button class="chip active" title="Quitar filtro de diseñador">🖋 ${esc(f.designer)} ✕</button>`);
+    dchip = node(`<button class="chip active" title="Quitar filtro de diseñador">🖋 ${esc(f.designer)} ✕</button>`);
     dchip.addEventListener('click', () => { f.designer = ''; renderBGG($('#main')); });
-    chips.append(dchip);
   }
   const clearBtn = node('<button class="chip clear-filters" id="bggClear">✕ Limpiar filtros</button>');
   clearBtn.addEventListener('click', () => {
@@ -675,10 +724,28 @@ function renderBGGFilters() {
     renderBGG($('#main'));   // reconstruye la barra con los controles reseteados y recarga
   });
   clearBtn.style.display = bggHasActiveFilters() ? 'inline-flex' : 'none';
-  chips.append(clearBtn);
-  chips.append(node('<span class="count-tag" id="bggCount"></span>'));
-  bar.append(chips);
-  bar.append(mech.panel);   // fila aparte, colapsable
+  const countTag = node('<span class="count-tag" id="bggCount"></span>');
+
+  if (isMobile()) {
+    // celular: mismos tres grupos que Biblioteca (el diseñador va como chip en la fila de botones)
+    const gFiltros = filterGroup('filtros', '🎛', 'Filtros', activeSelectCount(f), [players, time, weight, sort, dirBtn]);
+    const gTipo = filterGroup('tipo', '🏷', 'Tipo', f.types.size, typeChips);
+    const fbtns = node('<div class="fbtns"></div>');
+    fbtns.append(gFiltros.button, gTipo.button, mech.button);
+    wireAccordion([gFiltros, gTipo, mech]);   // un solo grupo abierto a la vez
+    const tail = node('<div class="filters-tail"></div>');
+    if (dchip) tail.append(dchip);            // el chip de diseñador va al pie (no rompe las 3 columnas)
+    tail.append(clearBtn, countTag);
+    bar.append(fbtns, gFiltros.panel, gTipo.panel, mech.panel, tail);
+  } else {
+    bar.append(players, time, weight, sort, dirBtn);
+    const chips = node('<div class="type-chips"></div>');
+    typeChips.forEach(c => chips.append(c));
+    chips.append(mech.button);
+    if (dchip) chips.append(dchip);
+    chips.append(clearBtn, countTag);
+    bar.append(chips, mech.panel);
+  }
   return bar;
 }
 
@@ -708,6 +775,9 @@ function paintBGG() {
   else BGGV.games.forEach(g => grid.append(card(g)));
   const cnt = $('#bggCount'); if (cnt) cnt.textContent = `${BGGV.total.toLocaleString('es-AR')} juego${BGGV.total === 1 ? '' : 's'}`;
   const clr = $('#bggClear'); if (clr) clr.style.display = bggHasActiveFilters() ? 'inline-flex' : 'none';
+  const f = S.filters;   // celular: badges al día (en BGG el diseñador es chip aparte, no va en "Filtros")
+  syncGroupBadge('filtros', (f.players ? 1 : 0) + (f.time ? 1 : 0) + (f.weight ? 1 : 0));
+  syncGroupBadge('tipo', f.types.size);
   setupBGGInfinite();
 }
 
@@ -845,34 +915,40 @@ function playersViz(g) {
 function openDetail(g, opts = {}) {
   const t = (g.subdomains || [])[0];
   const ageCom = g.age_community ? esc(g.age_community) : '—';
+  // Cada bloque lleva data-fb: en desktop van en dos columnas (detail-side / detail-main) como
+  // siempre; en celular la ficha pasa a una sola columna y estos data-fb se reordenan por CSS
+  // (ver bloque móvil en styles.css) → portada, título, año/rank, tipo, descripción, specs, nombre
+  // español, jugadores, idioma, diseño, categorías, mecánicas, expansiones, dueños, link BGG.
   const inner = node(`<div>
     <div class="detail-hero">
       <div class="detail-side">
-        <div class="cover"><img src="${esc(safeImg(g.image))}" alt=""></div>
-        ${g.es_name && g.es_name !== g.name ? `<div><div class="section-h" style="margin-top:8px">Nombre en español</div><div style="color:var(--ink);font-size:14px">${esc(g.es_name)}</div></div>` : ''}
-        ${g.designers && g.designers.length ? `<div><div class="section-h" style="margin-top:8px">Diseño</div><div class="chips-line" id="desigChips">${g.designers.map(d => `<span class="tagchip click" data-d="${esc(d.name)}">🖋 ${esc(d.name)}</span>`).join('')}</div></div>` : ''}
-        <div id="expSection"></div>
-        ${g.owners_owning && g.owners_owning.length ? `<div><div class="section-h">Lo tienen</div><div class="chips-line">${g.owners_owning.map(n => `<span class="tagchip">👤 ${esc(n)}</span>`).join('')}</div></div>` : ''}
-        <div style="margin-top:auto;padding-top:6px"><a href="${esc(safeImg(g.href) || '#')}" target="_blank" rel="noopener">Ver en BoardGameGeek ↗</a></div>
+        <div class="cover" data-fb="cover"><img src="${esc(safeImg(g.image))}" alt=""></div>
+        ${g.es_name && g.es_name !== g.name ? `<div data-fb="esname"><div class="section-h" style="margin-top:8px">Nombre en español</div><div style="color:var(--ink);font-size:14px">${esc(g.es_name)}</div></div>` : ''}
+        ${g.designers && g.designers.length ? `<div data-fb="designers"><div class="section-h" style="margin-top:8px">Diseño</div><div class="chips-line" id="desigChips">${g.designers.map(d => `<span class="tagchip click" data-d="${esc(d.name)}">🖋 ${esc(d.name)}</span>`).join('')}</div></div>` : ''}
+        <div id="expSection" data-fb="expansions"></div>
+        ${g.owners_owning && g.owners_owning.length ? `<div data-fb="owners"><div class="section-h">Lo tienen</div><div class="chips-line">${g.owners_owning.map(n => `<span class="tagchip">👤 ${esc(n)}</span>`).join('')}</div></div>` : ''}
+        <div data-fb="bgg" style="margin-top:auto;padding-top:6px"><a href="${esc(safeImg(g.href) || '#')}" target="_blank" rel="noopener">Ver en BoardGameGeek ↗</a></div>
       </div>
-      <div>
-        <div class="detail-title">${esc(g.name)}</div>
-        <div class="detail-sub">${esc(g.yearpublished || '')} ${g.rank_overall ? '· Ranking BGG #' + g.rank_overall : ''} ${g.rating_avg ? '· ★ ' + (+g.rating_avg).toFixed(1) : ''}</div>
-        <div class="chips-line" style="margin-top:10px">
+      <div class="detail-main">
+        <div class="detail-title" data-fb="title">${esc(g.name)}</div>
+        <div class="detail-sub" data-fb="sub">${esc(g.yearpublished || '')} ${g.rank_overall ? '· Ranking BGG #' + g.rank_overall : ''} ${g.rating_avg ? '· ★ ' + (+g.rating_avg).toFixed(1) : ''}</div>
+        <div class="chips-line" data-fb="tags" style="margin-top:10px">
           ${(g.subdomains || []).map(s => `<span class="type-tag" style="--c:${typeColor(s)}">${typeEs(s)}</span>`).join('')}
         </div>
-        <div class="detail-desc" id="detailDesc">${esc(g.short_description || '')}</div>
-        <div class="spec-grid">
+        <div class="detail-desc" id="detailDesc" data-fb="desc">${esc(g.short_description || '')}</div>
+        <div class="spec-grid" data-fb="specs">
           <div class="spec"><div class="k">Complejidad</div><div class="v">${weightbar(g.weight, true)} ${g.weight ? (+g.weight).toFixed(1) + '/5' : ''}</div></div>
           <div class="spec"><div class="k">Duración</div><div class="v">⏱ ${g.minplaytime || '?'}–${g.maxplaytime || '?'} min</div></div>
           <div class="spec"><div class="k">Edad · editorial</div><div class="v">${g.minage_publisher ? g.minage_publisher + '+' : '—'}</div></div>
           <div class="spec"><div class="k">Edad · comunidad</div><div class="v">${ageCom}</div></div>
         </div>
-        <div class="section-h">Jugadores <span style="text-transform:none;font-weight:500">(👑 mejor · <span style="color:var(--brass-2)">recomendado</span>)</span></div>
-        ${playersViz(g)}
-        <div class="spec" style="margin-top:14px"><div class="k">Dependencia del idioma</div><div class="v" style="font-size:14px">${esc(LANG[g.language_dependence] || g.language_dependence || '—')}</div></div>
-        ${g.categories && g.categories.length ? `<div class="section-h">Categorías</div><div class="chips-line">${g.categories.map(c => `<span class="tagchip">${esc(c)}</span>`).join('')}</div>` : ''}
-        ${g.mechanics && g.mechanics.length ? `<div class="section-h">Mecánicas</div><div class="chips-line">${g.mechanics.slice(0, 12).map(c => `<span class="tagchip">${esc(c)}</span>`).join('')}</div>` : ''}
+        <div data-fb="players">
+          <div class="section-h">Jugadores <span style="text-transform:none;font-weight:500">(👑 mejor · <span style="color:var(--brass-2)">recomendado</span>)</span></div>
+          ${playersViz(g)}
+        </div>
+        <div class="spec" data-fb="lang" style="margin-top:14px"><div class="k">Dependencia del idioma</div><div class="v" style="font-size:14px">${esc(LANG[g.language_dependence] || g.language_dependence || '—')}</div></div>
+        ${g.categories && g.categories.length ? `<div data-fb="categories"><div class="section-h">Categorías</div><div class="chips-line">${g.categories.map(c => `<span class="tagchip">${esc(c)}</span>`).join('')}</div></div>` : ''}
+        ${g.mechanics && g.mechanics.length ? `<div data-fb="mechanics"><div class="section-h">Mecánicas</div><div class="chips-line">${g.mechanics.slice(0, 12).map(c => `<span class="tagchip">${esc(c)}</span>`).join('')}</div></div>` : ''}
       </div>
     </div>
     <div class="state-bar"></div>
@@ -1070,6 +1146,21 @@ function openExpansionDetail(g, opts = {}) {
 }
 
 function _words(t, n) { const w = (t || '').split(/\s+/); return w.length <= n ? t : w.slice(0, n).join(' ') + '…'; }
+// clamp genérico con "ver más"/"ver menos" para un texto ya presente (reusa _words y el estilo
+// .vermas de las fichas). Si el texto es corto, lo muestra entero sin botón.
+function clampText(box, text, limit) {
+  text = text || '';
+  const many = text.split(/\s+/).length > limit;
+  const collapse = () => {
+    box.textContent = _words(text, limit) + ' ';
+    if (many) { const a = node('<button class="vermas">ver más ▾</button>'); a.onclick = expand; box.append(a); }
+  };
+  const expand = () => {
+    box.textContent = text + ' ';
+    const a = node('<button class="vermas">ver menos ▴</button>'); a.onclick = collapse; box.append(a);
+  };
+  collapse();
+}
 async function setupDescription(inner, g) {
   const box = inner.querySelector('#detailDesc'); if (!box) return;
   const short = g.short_description || '';
@@ -1107,9 +1198,9 @@ function stateControls(g) {
   const box = node(`<div style="display:flex;flex-direction:column;gap:12px;width:100%">
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
       <div class="seg">
-        <button data-s="own" class="${g.own ? 'on' : ''}">📦 Lo tengo</button>
-        <button data-s="wishlist" class="${g.wishlist ? 'on' : ''}">⭐ Lo quiero</button>
-        <button data-s="none" class="${!g.own && !g.wishlist ? 'on' : ''}">Ninguno</button>
+        <button data-s="own" class="${g.own ? 'on' : ''}"><span class="seg-ic">📦</span><span class="seg-tx">Lo tengo</span></button>
+        <button data-s="wishlist" class="${g.wishlist ? 'on' : ''}"><span class="seg-ic">⭐</span><span class="seg-tx">Lo quiero</span></button>
+        <button data-s="none" class="${!g.own && !g.wishlist ? 'on' : ''}"><span class="seg-ic">✕</span><span class="seg-tx">Ninguno</span></button>
       </div>
       <div class="prio ${g.wishlist ? '' : 'hidden'}" style="display:${g.wishlist ? 'flex' : 'none'};align-items:center;gap:8px">
         <span style="color:var(--ink-dim);font-size:13px">Prioridad</span>
@@ -1443,7 +1534,7 @@ function engineSwitch() {
   const hint = box.querySelector('#engHint');
   const setHint = () => {
     if (!S.geminiReady) hint.innerHTML = 'Activá el agente con IA cargando tu API key de Gemini (gratis) en <b>⚙</b>.';
-    else hint.textContent = ADV.engine === 'agent' ? `Razona con Gemini sobre ${shortlistSize(poolTotal())} candidatos de tu colección.` : 'Puntuación transparente sobre los datos.';
+    else hint.textContent = ADV.engine === 'agent' ? `Razona sobre ${shortlistSize(poolTotal())} candidatos de tu colección.` : 'Puntuación transparente sobre los datos.';
   };
   setHint();
   box.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
@@ -1574,10 +1665,11 @@ function renderResults(out) {
       <div>
         <h3>${esc(p.name)}</h3>
         <div class="chips-line" style="margin:6px 0">${(p.subdomains || []).map(s => `<span class="type-tag" style="--c:${typeColor(s)}">${typeEs(s)}</span>`).join('')} ${weightbar(p.weight)}</div>
-        <div class="rec-pitch">${esc(p.pitch)}</div>
+        <div class="rec-pitch"></div>
         <div class="rec-why">${(p.reasons || []).map(r => `<span class="tagchip">✓ ${esc(r)}</span>`).join('')}</div>
       </div>
     </div>`);
+    clampText(c.querySelector('.rec-pitch'), p.pitch, 28);   // el pitch largo se corta con "ver más"
     c.querySelector('.rec-ficha').addEventListener('click', () => openDetail(g, { readonly: true }));
     res.append(c);
   });
@@ -1812,11 +1904,11 @@ function openData(tab = 'perfiles') {
   const inner = node(`<div class="sheet-body">
     <h2 style="margin-bottom:14px">Perfiles y configuración</h2>
     <div class="tabs" id="dataTabs">
-      <button data-t="perfiles">👥 Perfiles</button>
-      <button data-t="importar">📥 Importar</button>
-      <button data-t="backup">💾 Backup</button>
-      <button data-t="actualizar">🔄 Actualizar</button>
-      <button data-t="config">⚙ Configurar</button>
+      <button data-t="perfiles"><span class="tab-ic">👥</span><span class="tab-tx">Perfiles</span></button>
+      <button data-t="importar"><span class="tab-ic">📥</span><span class="tab-tx">Importar</span></button>
+      <button data-t="backup"><span class="tab-ic">💾</span><span class="tab-tx">Backup</span></button>
+      <button data-t="actualizar"><span class="tab-ic">🔄</span><span class="tab-tx">Actualizar</span></button>
+      <button data-t="config"><span class="tab-ic">⚙</span><span class="tab-tx">Configurar</span></button>
     </div>
 
     <section data-p="perfiles" class="tab-pane">

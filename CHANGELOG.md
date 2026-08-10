@@ -9,6 +9,36 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-08-10 — Vista celular (responsive)
+Rediseño de la experiencia en teléfono (probado a mano sobre iPhone 15 Pro). Todo **front-end**:
+el desktop no cambia y no hay carga extra en el server.
+### Added
+- **Nav a solo-iconos** en celular (📖 Biblioteca · ⭐ Wishlist · 🏆 BGG · 📊 Panel · ✨ Advisor),
+  repartidos a lo ancho para tap cómodo; entran las 5 sin cortar. En desktop sigue con texto.
+- **Filtros colapsables** en tres grupos (**🎛 Filtros / 🏷 Tipo / 🛠 Mecánicas**) con el buscador
+  siempre visible. Acordeón (uno abierto a la vez), badge "(N)" de activos, flechita ▾ que rota al
+  abrir y se oculta cuando hay filtro activo (así el ancho no desborda). Libera la primera pantalla
+  para ver los juegos.
+- **"Ver más / ver menos"** en el pitch de las recomendaciones del Advisor (mismo patrón que la
+  descripción de las fichas), para que la lista no se haga interminable.
+### Changed
+- **Ficha reordenada en celular**: portada centrada → título → año/ranking → tipo → descripción →
+  specs → jugadores → idioma → diseño → categorías → mecánicas → expansiones → dueños → BGG.
+  Espaciado parejo. Técnica: `display:contents` + `order` (una sola construcción, desktop intacto).
+- **Botón de cerrar (✕) sticky** con efecto *glass* (semitransparente + blur): sigue visible al
+  scrollear la ficha, no hay que volver arriba. Aplica también en desktop.
+- **Barra de estado** de la ficha compacta y con solo iconos (📦/⭐/✕) en celular.
+- **Advisor**: las dos tarjetas de modo (*¿Qué saco hoy?* / *¿Qué compro?*) en un solo renglón,
+  como en PC.
+- **Tabs de Configuración** a solo-iconos en celular (los 5 no entraban con texto).
+- **Inputs de texto** (buscador y campo libre del Agente) con fondo blanco y más altos; `16px` para
+  evitar el zoom automático de iOS al enfocar.
+- **Toast** de acciones centrado y con ancho acotado.
+- Se sacó "con Gemini" del texto del motor Agente (queda "Razona sobre N candidatos…").
+### Fixed
+- Separaciones parejas en la Biblioteca móvil (nav→filtros, filtros→grilla y entre tarjetas al
+  mismo ritmo).
+
 ## [0.9.1] — 2026-08-10 — Contador de visibles al cambiar de vista
 ### Fixed
 - El **contador de juegos visibles** solo aparecía en la vista donde tocabas el filtro; al cambiar
