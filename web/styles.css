@@ -310,8 +310,12 @@ img { display: block; }
   [data-fb="bgg"]        { order: 15; }
 
   /* ---- barra de estado: más compacta y con solo iconos (no ocupa dos renglones) ----
-     Prefijadas con `.modal` para ganarle en especificidad a las reglas base (que van más abajo). */
-  .modal .state-bar { padding: 10px 14px; gap: 8px; }
+     Prefijadas con `.modal` para ganarle en especificidad a las reglas base (que van más abajo).
+     La barra es sticky bottom:0 → sus botones (📦/⭐/✕) quedaban pegados al borde inferior, dentro de
+     la franja donde iOS Safari revela su toolbar → el primer toque abría la barra en vez de clickear.
+     Fix: separación FIJA abajo (padding-bottom 40px) que los levanta fuera de esa franja. Fijo a
+     propósito: el dvh/lvh en este Safari no es confiable (ver .to-top). Se afina en dispositivo. */
+  .modal .state-bar { padding: 10px 14px 40px; gap: 8px; }
   .modal .seg { flex: 1; }
   .modal .seg button { flex: 1; padding: 9px 0; font-size: 16px; }
   .modal .seg .seg-tx { display: none; }   /* solo el icono: 📦 / ⭐ / ✕ */
@@ -932,12 +936,12 @@ select, .mini-select {
      el primer tap solo mostraba el chrome (y la empujaba arriba), el segundo recién disparaba.
      Valor FIJO a propósito (sin env(safe-area-inset-bottom)): con la barra colapsada el inset es 0,
      pero al desplegarse pasa a >0 y, sumado, hacía saltar el botón hacia arriba. Fijo => no se mueve
-     cuando aparece/desaparece la barra. 72px deja margen para que un tap muy abajo no falle. El salto
-     al aparecer la barra lo cancela CSS puro: 100lvh es el viewport con la barra retraída y 100dvh el
-     actual (dinámico), así que (100lvh - 100dvh) = cuánto ocupa la barra AHORA (0 colapsada, T
-     desplegada); le restamos eso al bottom y el botón queda clavado. Fallback a 72px fijo si el
-     navegador no soporta dvh/lvh (Safari <15.4). */
-  .to-top { bottom: 72px; bottom: max(10px, calc(72px - (100lvh - 100dvh))); }
+     cuando aparece/desaparece la barra. 72px = piso sin doble-tap (52) + margen. El "salto" al
+     aparecer la barra (iOS mantiene el botón por encima de su toolbar) NO se pudo cancelar de forma
+     limpia: visualViewport no mide el toggle del toolbar, y dvh/lvh en este Safari no dan 0 con la
+     barra colapsada (queda el mini-bar), así que restar (100lvh-100dvh) tiraba el botón al piso.
+     Nos quedamos con el valor fijo: tap limpio y aceptamos el saltito (comportamiento nativo iOS). */
+  .to-top { bottom: 72px; }
 }
 
 /* expansiones (ítem 3) */
