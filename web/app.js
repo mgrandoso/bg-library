@@ -245,6 +245,20 @@ function bindTop() {
     window.addEventListener('scroll', sync, { passive: true });
     toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
     sync();
+    // En iOS, al aparecer la barra de Safari el viewport visible se achica y el botón (fixed abajo)
+    // salta hacia arriba para quedar por encima de la barra. Medimos cuánto tapa abajo (--vv) y en
+    // el CSS bajamos el botón lo mismo, así queda clavado. Con la barra colapsada y en PC el inset
+    // es 0, así que no cambia nada.
+    const vv = window.visualViewport;
+    if (vv) {
+      const pin = () => {
+        const inset = document.documentElement.clientHeight - vv.height - vv.offsetTop;
+        toTop.style.setProperty('--vv', (inset > 0 ? inset : 0) + 'px');
+      };
+      vv.addEventListener('resize', pin, { passive: true });
+      vv.addEventListener('scroll', pin, { passive: true });
+      pin();
+    }
   }
   applyLockUI();
 }
