@@ -932,10 +932,9 @@ select, .mini-select {
      el primer tap solo mostraba el chrome (y la empujaba arriba), el segundo recién disparaba.
      Valor FIJO a propósito (sin env(safe-area-inset-bottom)): con la barra colapsada el inset es 0,
      pero al desplegarse pasa a >0 y, sumado, hacía saltar el botón hacia arriba. Fijo => no se mueve
-     cuando aparece/desaparece la barra. La franja que la revela ocupa ~40-50px; a 44px volvía el
-     doble-tap, así que 50px es el piso que despeja esa franja. No hay medida oficial: probado en
-     dispositivo. */
-  .to-top { bottom: 50px; }
+     cuando aparece/desaparece la barra. Piso encontrado en dispositivo: 50px pedía doble-tap, 52px
+     queda limpio. (El salto al aparecer la barra es intrínseco de iOS y no se apaga con CSS.) */
+  .to-top { bottom: 52px; }
 }
 
 /* expansiones (ítem 3) */
