@@ -17,10 +17,8 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 ### Fixed
 - **Botón "volver arriba" pedía dos toques en iOS Safari:** pegado al borde inferior caía en la franja
   que Safari usa para revelar su barra de herramientas, así que el primer toque solo mostraba el chrome
-  (y empujaba el botón hacia arriba) y el segundo recién disparaba. Se lo aleja del borde **solo en
-  celular** para que quede por encima de esa franja; tablet y PC quedan igual. (El alto exacto de esa
-  franja no está documentado por Apple y con la barra colapsada `safe-area-inset-bottom` reporta 0, así
-  que el margen se calibra a ojo y se afina probando en el dispositivo.)
+  y el segundo recién disparaba. Se lo aleja del borde **solo en celular**, con una posición fija que
+  **no salta cuando aparece o desaparece la barra** de Safari; tablet y PC quedan igual.
 
 ## [0.12.8] — 2026-08-10 — Botón "volver arriba", favicon para favoritos y fix del toast
 ### Added
