@@ -313,9 +313,11 @@ img { display: block; }
      Prefijadas con `.modal` para ganarle en especificidad a las reglas base (que van más abajo).
      La barra es sticky bottom:0 → sus botones (📦/⭐/✕) quedaban pegados al borde inferior, dentro de
      la franja donde iOS Safari revela su toolbar → el primer toque abría la barra en vez de clickear.
-     Fix: separación FIJA abajo (padding-bottom 40px) que los levanta fuera de esa franja. Fijo a
-     propósito: el dvh/lvh en este Safari no es confiable (ver .to-top). Se afina en dispositivo. */
-  .modal .state-bar { padding: 10px 14px 40px; gap: 8px; }
+     Fix: separación abajo que los levanta fuera de esa franja. Con la toolbar COLAPSADA hace falta
+     (40px); con la toolbar DESPLEGADA la propia barra ya separa y ese hueco queda feo, así que ahí se
+     achica. El estado lo detecta el JS midiendo el alto real del visualViewport (el dvh/lvh miente en
+     este Safari, ver .to-top) y setea --sb-pad. Fallback 40px si no hay visualViewport. */
+  .modal .state-bar { padding: 10px 14px var(--sb-pad, 40px); gap: 8px; }
   .modal .seg { flex: 1; }
   .modal .seg button { flex: 1; padding: 9px 0; font-size: 16px; }
   .modal .seg .seg-tx { display: none; }   /* solo el icono: 📦 / ⭐ / ✕ */

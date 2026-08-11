@@ -246,6 +246,22 @@ function bindTop() {
     toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
     sync();
   }
+  // La barra de estado de la ficha (sticky abajo) necesita separarse del borde cuando la toolbar de
+  // Safari está COLAPSADA (ahí sus botones caen en la franja del doble-tap); con la toolbar DESPLEGADA
+  // esa separación de más queda como un hueco feo. Detectamos el estado midiendo el alto real del
+  // visualViewport (baja al aparecer la toolbar) contra su máximo, y ajustamos --sb-pad.
+  const vv = window.visualViewport;
+  if (vv) {
+    let maxH = 0;
+    const setSbPad = () => {
+      maxH = Math.max(maxH, vv.height);
+      const barUp = (maxH - vv.height) > 24;
+      document.documentElement.style.setProperty('--sb-pad', barUp ? '10px' : '40px');
+    };
+    vv.addEventListener('resize', setSbPad, { passive: true });
+    vv.addEventListener('scroll', setSbPad, { passive: true });
+    setSbPad();
+  }
   applyLockUI();
 }
 
