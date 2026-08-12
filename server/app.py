@@ -7,7 +7,8 @@ import re
 import time
 
 from fastapi import FastAPI, Body, Depends, UploadFile, File, Form, Query, BackgroundTasks
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
+from fastapi.responses import (HTMLResponse, JSONResponse, StreamingResponse, FileResponse,
+                               Response)
 from fastapi.staticfiles import StaticFiles
 
 import db
@@ -822,12 +823,53 @@ def set_config(payload: dict = Body(...)):
 
 # ---------------- estático ----------------
 
-_ASSET_V = re.compile(r"/(styles\.css|app\.js)\?v=\d+")
+JS = os.path.join(WEB, "js")
+
+_ASSET_V = re.compile(r"/(styles\.css|js/main\.js)\?v=\d+")
+# specifier relativo de un import ESM: `from './x.js'` o `import('./x.js')`
+_JS_IMPORT = re.compile(r"(from\s+|import\s*\(\s*)'(\./[a-z0-9_-]+\.js)'")
+_JS_NAME = re.compile(r"^[a-z0-9_-]+$")
+
+
+def _js_version():
+    """Un ÚNICO número de versión para todo web/js/: el mtime más nuevo del directorio.
+
+    Tiene que ser el mismo para todos los módulos, no el mtime de cada archivo: el navegador
+    identifica un módulo por su URL, así que si dos importadores le pusieran ?v= distinto a
+    `state.js` lo cargaría DOS VECES y habría dos copias del estado. Con un número único eso
+    no puede pasar, y de paso tocar cualquier módulo invalida el grafo entero."""
+    newest = 0
+    try:
+        for name in os.listdir(JS):
+            if name.endswith(".js"):
+                newest = max(newest, os.path.getmtime(os.path.join(JS, name)))
+    except OSError:
+        pass
+    return int(newest)
+
+
+@app.get("/js/{name}.js")
+def js_module(name: str):
+    """Sirve un módulo de web/js/ propagando el cache-buster a sus imports.
+
+    El ?v= del index solo versiona el módulo de ENTRADA; los importados los pide el navegador
+    por la URL que dice el `import`, que no lleva número. Reescribiéndola acá, el seguro contra
+    el caché viejo (el que hacía falta para iOS Safari) cubre el grafo completo."""
+    if not _JS_NAME.match(name):
+        return Response(status_code=404)
+    path = os.path.join(JS, name + ".js")
+    if not os.path.isfile(path):
+        return Response(status_code=404)
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    v = _js_version()
+    src = _JS_IMPORT.sub(lambda m: f"{m.group(1)}'{m.group(2)}?v={v}'", src)
+    return Response(src, media_type="text/javascript; charset=utf-8")
 
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    """Sirve index.html con el cache-buster de styles.css/app.js derivado del mtime del archivo.
+    """Sirve index.html con el cache-buster de styles.css/js/main.js derivado del mtime.
 
     Antes ese número (?v=84) se subía A MANO en cada cambio de CSS/JS. No versiona nada —no se
     guarda ninguna copia—: solo cambia la URL para que el navegador no reuse la vieja. Como el
@@ -840,6 +882,8 @@ def index():
 
     def stamp(m):
         asset = m.group(1)
+        if asset == "js/main.js":       # el JS son muchos módulos: versión única de todo web/js/
+            return f"/{asset}?v={_js_version()}"
         try:
             return f"/{asset}?v={int(os.path.getmtime(os.path.join(WEB, asset)))}"
         except OSError:

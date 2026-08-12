@@ -107,12 +107,33 @@ guardadas (snapshot, scope por perfil). Corren en < 1 s: `python server/tests.py
 - Filtrado en el cliente **solo de tu colección** (holdings, ~cientos): trivial en memoria y UI
   instantánea. El browse del catálogo completo (5000+) es server-side y paginado (`/api/bgg`).
 - Sin framework de front: vanilla JS con helpers mínimos; menos superficie, cero build.
+- **Módulos ES nativos, sin bundler.** `web/js/` son 23 módulos que el navegador carga siguiendo
+  los `import`; sigue sin haber paso de build, npm ni webpack.
+
+## Front: de un archivo a módulos
+
+`app.js` era un solo archivo de ~2.550 líneas donde todo era global: cualquier función podía llamar
+a cualquier otra y ninguna declaraba de qué dependía. El argumento para no partirlo era que "sin
+bundler significa múltiples `<script>` y orden manual de carga" — que es exactamente lo que resuelve
+**ESM**: el navegador lee los `import` del módulo de entrada y arma el orden solo.
+
+- **`web/js/`, 23 módulos** de ~40 a ~360 líneas. El grafo va de hojas sin dependencias
+  (`util`, `domain`, `state`) hacia arriba; `main.js` es la entrada y **nadie lo importa**.
+- El código se movió **tal cual** (mismos cuerpos de función): el diff es corte + cabeceras de
+  `import`/`export`, no reescritura. La API pública de cada módulo es solo lo que otro usa.
+- **Ciclos**: los hay (`router` ↔ vistas, `card` ↔ `detail`) y son inocuos porque solo participan
+  declaraciones de función, que se hoistean. La única regla a respetar: ningún módulo puede leer en
+  su nivel superior un `const` de otro módulo del ciclo. Hoy el único código de nivel superior son
+  los listeners de `matchMedia` (sobre sus propios `const`) y el `init()` final de `main.js`.
+- **`coverObserver`** era un `let` global que `responsive.js` pisaba; un import ESM es de solo
+  lectura, así que `card.js` pasó a exponer `resetCoverObserver()` en vez de la variable.
+- **Cache-buster**: el `?v=` del index versiona solo la entrada. `GET /js/{name}.js` reescribe los
+  `import` agregándoles el mismo número (el mtime más nuevo de `web/js/`). Tiene que ser **uno solo
+  para todos**: el navegador identifica un módulo por su URL, así que dos `?v=` distintos para
+  `state.js` lo cargarían dos veces y habría dos copias del estado.
 
 ## Qué NO se tocó (y por qué)
 
-- **`app.js` es un archivo grande (~2.300 líneas).** Uncle Bob pediría partirlo; sin bundler eso
-  significa múltiples `<script>` y orden manual de carga. Está seccionado por comentarios y cada
-  vista/modal es una función acotada. Se difiere hasta que haya build.
 - **Modales largos (`openData`, `openDetail`).** Son constructores de UI cohesivos (una pantalla
   cada uno); partirlos ahora agrega indirección sin bajar complejidad real.
 

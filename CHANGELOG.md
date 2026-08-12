@@ -9,6 +9,21 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-08-12 — El código del front pasó de un archivo único a 23 módulos
+Versión de **refactor**: no agrega funciones ni cambia ninguna pantalla.
+
+### Changed
+- **De un `app.js` de 2.550 líneas a 23 archivos, uno por tema** (la ficha, los filtros, la grilla,
+  el Advisor, el modo seguro, los perfiles…). Antes cualquier función podía llamar a cualquier otra
+  y ninguna declaraba de qué dependía: para tocar algo había que revisar todo el archivo para saber
+  qué más se rompía. Ahora cada uno declara arriba qué usa de los demás, así que **agregar o
+  arreglar algo es más rápido y con menos riesgo de romper algo lejano**. El código se movió tal
+  cual, sin reescribir funciones, y sigue sin necesitar ningún paso de compilación.
+- **El seguro anti-caché ahora cubre todo el JavaScript**, no solo el archivo principal: con 23
+  archivos, el servidor le pone a todos el mismo número de versión.
+
+Detalle técnico en [`REVIEW.md`](REVIEW.md).
+
 ## [0.13.0] — 2026-08-12 — Instalable como app, controles parejos y arreglos de layout al achicar la ventana
 ### Added
 - **Se puede instalar como app.** Al agregarla a la pantalla de inicio (iOS o Android) ahora abre en

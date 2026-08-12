@@ -86,6 +86,9 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
   </button>
 
-  <script src="/app.js?v=65"></script>
+  <!-- Un solo <script>: es un MÓDULO ES. El navegador lee sus `import` y baja el resto de
+       web/js/ en el orden correcto, sin bundler ni paso de build. El ?v= lo reescribe el
+       servidor (mtime más nuevo de todo web/js/) y también lo propaga a los imports. -->
+  <script type="module" src="/js/main.js?v=65"></script>
 </body>
 </html>

@@ -218,7 +218,8 @@ BoardGameGeek cerró su XML API oficial (requiere token). Ludoteca usa dos fuent
 ```
 server/   app.py (API)  db.py (SQLite)  bgg.py (geekdo)  advisor.py (recomendador)
           seed.py  appconfig.py  tests.py
-web/      index.html  styles.css  app.js
+web/      index.html  styles.css  manifest.webmanifest
+          js/  23 módulos ES (main.js es la entrada; el navegador resuelve los import, sin build)
 build/    enrich.py  backfill_desc.py  preseed_top.py (top-5000 BGG)  shots.py (capturas del README)
 data/     bgg_top.json (top-5000 pre-seed, versionado) · bgg_data.json (cache local, gitignored)
 docs/     capturas del README
