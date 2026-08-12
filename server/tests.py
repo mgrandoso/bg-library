@@ -38,6 +38,13 @@ def bloque_falló(name, e):
         check(f"{name} ({e})", False)
 
 
+def omitido(name, motivo):
+    """Bloque que no se puede correr porque faltan DATOS, no porque algo esté roto."""
+    global SKIP
+    SKIP += 1
+    print(f"  skip {name} ({motivo})")
+
+
 # ---- bgg.parse_id ----
 check("parse_id numérico", bgg.parse_id("173346") == "173346")
 check("parse_id url", bgg.parse_id("https://boardgamegeek.com/boardgame/13/catan") == "13")
@@ -89,24 +96,36 @@ s_bool, _ = advisor.score_play(g_l2, {"players": 2, "language_ok": True})
 check("idioma booleano viejo se comporta como 'light' (compat)", s_bool == s_light)
 
 # ---- integración contra la DB seedeada ----
+# Este bloque corre contra la colección REAL de la base local, así que necesita que haya una.
+# En un clon nuevo (o en CI) la base nace solo con el catálogo top-5000 del preseed y ningún juego
+# marcado como propio: ahí no hay nada que integrar y el bloque se OMITE. Antes fallaba, y en el
+# primer CI eso se leyó como "2 tests rotos" cuando en realidad faltaban datos.
 try:
     conn = db.connect()
     me = db.get_me(conn)
     games = db.games_for_owner(conn, me)
     conn.close()
     own = [x for x in games if x["own"]]
-    check("DB: hay juegos en propiedad", len(own) > 0)
-    check("DB: game tiene JSON parseado (subdomains lista)", isinstance(games[0]["subdomains"], list))
-
-    rec = advisor.recommend("play", {"players": 2, "vibe": "medium"}, engine="rules", limit=3, owner_id=me)
-    check("advisor play devuelve picks", len(rec["picks"]) > 0)
-    check("advisor pick tiene pitch", bool(rec["picks"][0]["pitch"]))
-
-    recb = advisor.recommend("buy", {"usual_players": 4, "vibe": "light", "safe_or_niche": "safe"},
-                             engine="rules", limit=3, owner_id=me)
-    check("advisor buy devuelve picks", len(recb["picks"]) > 0)
 except Exception as e:  # noqa
-    bloque_falló("integración DB", e)
+    games, own = [], []
+    bloque_falló("integración DB (lectura)", e)
+
+if not own:
+    omitido("integración DB", "la base no tiene colección cargada")
+else:
+    try:
+        check("DB: game tiene JSON parseado (subdomains lista)",
+              isinstance(games[0]["subdomains"], list))
+
+        rec = advisor.recommend("play", {"players": 2, "vibe": "medium"}, engine="rules", limit=3, owner_id=me)
+        check("advisor play devuelve picks", len(rec["picks"]) > 0)
+        check("advisor pick tiene pitch", bool(rec["picks"][0]["pitch"]))
+
+        recb = advisor.recommend("buy", {"usual_players": 4, "vibe": "light", "safe_or_niche": "safe"},
+                                 engine="rules", limit=3, owner_id=me)
+        check("advisor buy devuelve picks", len(recb["picks"]) > 0)
+    except Exception as e:  # noqa
+        bloque_falló("integración DB", e)
 
 # ---- strip de HTML ----
 _stripped = bgg._strip_html("<p>Un <b>gran</b> juego</p> &amp; más")
@@ -890,5 +909,5 @@ try:
 except Exception as e:  # noqa
     bloque_falló("absorb_expansion", e)
 
-print(f"\n{PASS} ok, {FAIL} fail" + (f", {SKIP} omitidos (dependencias ausentes)" if SKIP else ""))
+print(f"\n{PASS} ok, {FAIL} fail" + (f", {SKIP} omitidos" if SKIP else ""))
 raise SystemExit(1 if FAIL else 0)

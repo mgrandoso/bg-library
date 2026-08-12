@@ -71,7 +71,17 @@ def main():
                     if msg.type == "error" and "Failed to load resource" not in msg.text else None)
 
             page.goto(URL, wait_until="domcontentloaded")
-            page.wait_for_selector(".card", timeout=20000)
+            # La Biblioteca pinta la colección; en un clon nuevo (o en CI) está VACÍA, se abre
+            # solo el onboarding y el humo se quedaba esperando tarjetas que nunca iban a existir.
+            # El catálogo top-5000 del preseed sí viene con el repo, así que en ese caso cerramos
+            # el onboarding y medimos sobre BGG (misma grilla y misma barra de filtros).
+            page.wait_for_selector(".card, .empty", timeout=20000)
+            if page.query_selector(".card") is None:
+                page.wait_for_timeout(300)
+                for cerrar in page.query_selector_all(".overlay .close"):
+                    cerrar.click()
+                page.click('#nav button[data-view="bgg"]')
+                page.wait_for_selector(".card", timeout=20000)
             page.wait_for_timeout(400)          # que se asienten los observers de portadas
 
             fallas += revisar(page, nombre)
