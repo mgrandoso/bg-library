@@ -9,6 +9,15 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.14.1] — 2026-08-12
+### Fixed
+- **Al angostar la ventana, la grilla dejó de saltar para arriba.** La secuencia era
+  5 → 4 → 3 → 2 → **4** → 3 → 2: achicabas y de golpe aparecían más tarjetas por fila, más finas.
+  Pasaba porque a los 720px el ancho mínimo de tarjeta bajaba de 215 a 150px de una, y con tarjetas
+  más chicas entran más columnas en menos espacio. Ahora una vez que entran dos, se queda en dos:
+  achicar solo puede sacar columnas, nunca agregarlas, y ninguna baja de 215px antes de que la
+  grilla decida pasar a una fila menos. En el celular no cambia nada.
+
 ## [0.14.0] — 2026-08-12 — El código del front pasó de un archivo único a 23 módulos
 Versión de **refactor**: no agrega funciones ni cambia ninguna pantalla.
 

@@ -505,6 +505,13 @@ select, .mini-select {
   display: grid; gap: 20px;
   grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
 }
+/* Con el mínimo de 215px, a partir de 728px hacia abajo ya entran solo DOS columnas. De ahí para
+   abajo las fijamos en dos en vez de achicar el mínimo. Achicarlo (era minmax(150px) desde 720px)
+   metía más tarjetas en menos espacio: al angostar la ventana la grilla SALTABA de 2 columnas a 4
+   y volvía a bajar (5 → 4 → 3 → 2 → 4 → 3 → 2). Así queda monotónica: achicar solo puede sacar
+   columnas, nunca agregar. En el celular no cambia nada —dos columnas, mismo ancho de tarjeta—;
+   lo que cambia es la ventana de PC angosta, que ahora sigue la misma progresión. */
+@media (max-width: 728px) { .grid { grid-template-columns: repeat(2, 1fr); } }
 .card {
   position: relative; background: var(--surface); border: 1px solid var(--line-soft);
   border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-card);
@@ -971,7 +978,7 @@ select, .mini-select {
      comiera el cambio de vista en celular. */
   .nav { order: 3; width: 100%; }
   main { padding: 18px 14px 70px; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 13px; }
+  .grid { gap: 13px; }   /* las columnas ya las fija la regla de ≤728px */
   .detail-hero { grid-template-columns: 1fr; }
   .detail-hero .cover { max-width: 220px; }
   .rec-card { grid-template-columns: 90px 1fr; }
