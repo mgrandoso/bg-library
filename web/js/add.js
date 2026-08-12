@@ -47,14 +47,18 @@ export function openAdd() {
     // La búsqueda queda ABIERTA detrás: la ficha se abre encima (otro overlay). Al cerrar la ficha
     // volvés a los resultados sin re-buscar; para salir, cerrás la ficha y después la búsqueda. Útil
     // para navegar entre varios resultados. NO se pisa la lista con un spinner.
-    toast('Abriendo ficha…');
+    // El aviso solo aparece si TARDA: cuando el juego ya está en tu base la ficha abre al toque y
+    // el cartel era ruido. Si hay que ir a buscarlo a BGG, ahí sí avisa que está trabajando.
+    const aviso = setTimeout(() => toast('Buscando en BGG…'), 400);
     try {
       const d = await api('/lookup/' + encodeURIComponent(oid) + '?owner=' + S.owner);
       const g = d.game;
-      if (d.is_expansion) { g._expansion = true; openExpansionDetail(g); return; }
+      // Si es expansión, ficha de expansión — y con el estado que ya tenga (📦/⭐) marcado.
+      if (d.is_expansion) { g._expansion = true; openExpansionDetail(g, { currentState: d.exp_state || null, keepOpen: true }); return; }
       if (!d.saved) g._preview = true;
       openDetail(g);
     } catch (e) { toast('Error: ' + e.message); }
+    finally { clearTimeout(aviso); }
   }
   inner.querySelector('#addSearch').addEventListener('click', doSearch);
   q.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });

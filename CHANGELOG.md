@@ -9,6 +9,20 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.14.3] — 2026-08-12
+### Fixed
+- **Al abrir una expansión que ya tenés desde "Agregar juego", se abría como si fuera un juego
+  suelto** y encima sin marcar que la tenías. Pasaba solo con las que ya están en tu base: para un
+  id que no conoce, la app le pregunta a BGG y BGG le dice que es una expansión; para uno que ya
+  tiene guardado, se ahorraba esa consulta y con ella el dato. Ahora, antes de abrir la ficha,
+  busca el id entre tus expansiones: si aparece, abre la ficha de expansión, rotulada con el juego
+  del que cuelga y con **📦 La tengo** (o ⭐) ya marcado.
+
+### Changed
+- **El cartel "Abriendo ficha…" ya no aparece siempre.** Cuando el juego está en tu base la ficha
+  abre al toque y el aviso era ruido. Ahora solo sale, y dice "Buscando en BGG…", si la consulta
+  tarda más de un instante — que es cuando de verdad hay que esperar.
+
 ## [0.14.2] — 2026-08-12
 ### Changed
 - **La "✕" de Ninguno pasó a ⛔.** Era el único de los tres botones de la ficha con un símbolo de

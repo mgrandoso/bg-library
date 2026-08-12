@@ -413,6 +413,21 @@ def owned_expansions_for(conn, owner_id):
     return out
 
 
+def expansion_holding(conn, owner_id, exp_oid):
+    """Busca un objectid en las expansiones del perfil (al revés que expansions_for, que va por
+    el juego madre). Devuelve {base_oid, base_name, state} o None.
+
+    Sirve para saber si un id que el usuario abre desde el buscador es en realidad una expansión
+    que YA tiene colgada de un juego. `games` no guarda si algo es expansión —ese dato solo viene
+    de BGG—, así que esta tabla es la única fuente local de verdad."""
+    r = conn.execute(
+        "SELECT e.base_oid, e.state, COALESCE(g.es_name, g.name, '') AS base_name "
+        "FROM expansions e LEFT JOIN games g ON g.objectid = e.base_oid "
+        "WHERE e.owner_id=? AND e.exp_oid=? LIMIT 1",
+        (owner_id, str(exp_oid))).fetchone()
+    return dict(r) if r else None
+
+
 def set_expansion(conn, owner_id, base_oid, exp_oid, name, state, short_description=None):
     """Upsert de una expansión colgada de `base_oid`. `state` ∈ {'own','wish'} (default 'wish' si
     viene otra cosa). `short_description` es lo único de "data" que guardamos (para el futuro

@@ -363,7 +363,16 @@ def lookup_game(oid: str, owner: int = 0, conn=Depends(get_conn)):
     g = db.game_with_state(conn, owner, oid)
     if g is not None:
         g["is_top"] = _is_top(g.get("rank_overall"))
-        return {"game": g, "saved": True}
+        # ¿es una EXPANSIÓN que ya tenés colgada de un juego? `games` no guarda `is_expansion`
+        # (ese dato solo llega de BGG), así que para un id que ya está en la base la única fuente
+        # local es la tabla `expansions`. Sin este chequeo, abrir "Star Realms: Gambit Set" desde
+        # el buscador mostraba una ficha de juego suelto y sin marcar que ya la tenías.
+        exp = db.expansion_holding(conn, owner, oid)
+        if exp:
+            g["is_expansion"] = 1
+            g["expands"] = [{"id": exp["base_oid"], "name": exp["base_name"]}]
+            return {"game": g, "saved": True, "is_expansion": True, "exp_state": exp["state"]}
+        return {"game": g, "saved": True, "is_expansion": False}
     try:
         rec = bgg.fetch(oid)
     except Exception as e:  # noqa — red; queda logueado en bgg._get

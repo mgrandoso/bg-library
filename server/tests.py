@@ -732,6 +732,16 @@ try:
     _all = db.expansions_for(conn, _me)
     check("expansions_for sin base agrupa por base_oid",
           "__QA_BASE__" in _all and len(_all["__QA_BASE__"]) == 3)
+    # búsqueda inversa: de un objectid a "¿es una expansión que ya tengo?". La usa /api/lookup
+    # para abrir la ficha correcta cuando el id ya está en la base.
+    _h = db.expansion_holding(conn, _me, "E2")
+    check("expansion_holding encuentra la expa por su objectid",
+          bool(_h) and _h["base_oid"] == "__QA_BASE__" and _h["state"] == "own")
+    check("expansion_holding trae el nombre del juego madre", _h["base_name"] == "Base QA")
+    check("expansion_holding devuelve None si el id no es expansión tuya",
+          db.expansion_holding(conn, _me, "__NO_EXISTE__") is None)
+    check("expansion_holding tiene scope por perfil",
+          db.expansion_holding(conn, _me + 9999, "E2") is None)
     db.remove_expansion(conn, _me, "__QA_BASE__", "E1"); conn.commit()
     check("remove_expansion saca una", len(db.expansions_for(conn, _me, "__QA_BASE__")) == 2)
     conn.execute("DELETE FROM expansions WHERE base_oid='__QA_BASE__'")
