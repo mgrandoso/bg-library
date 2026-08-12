@@ -5,11 +5,23 @@ import io
 import json
 import logging
 import os
+import re
 import time
 
 import db
 
 log = logging.getLogger("ludoteca.seed")
+
+# El CSV lo sube el usuario: el objectid de BGG es SIEMPRE numérico, así que todo lo demás se
+# descarta acá. Sin este filtro un valor arbitrario viajaba hasta la clave primaria de `games` y
+# hasta el HTML del diff de reconciliación (donde se interpola en un atributo).
+_OID_RE = re.compile(r"^[0-9]{1,12}$")
+
+
+def _clean_oid(raw):
+    """objectid válido (solo dígitos) o None si la fila no sirve."""
+    oid = (raw or "").strip()
+    return oid if _OID_RE.match(oid) else None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -64,8 +76,9 @@ def import_csv(text, owner_id, mode="both", bgg_lookup=None, fetch_missing=False
     updated = added_games = skipped = 0
     bgg = bgg_lookup or {}
     for row in reader:
-        oid = (row.get("objectid") or "").strip()
+        oid = _clean_oid(row.get("objectid"))
         if not oid:
+            skipped += 1
             continue
         st = _state_from_row(row)
         if mode == "own" and not st["own"]:
@@ -197,11 +210,16 @@ def refresh_tail(fetch=None, dump_n=None):
                 WHERE objectid=?""",
                          (rec.get("rank_overall"), rec.get("rating_bayes"),
                           rec.get("rating_avg"), rec.get("users_rated"), oid))
+            # commit POR JUEGO, no al final: el primer UPDATE toma el lock de escritura de SQLite y
+            # lo retiene hasta el commit. Si commiteáramos recién al terminar, el lock quedaría
+            # tomado durante TODOS los fetch de red intermedios (hasta 25s x 3 reintentos cada uno)
+            # y cualquier otra escritura de la app —marcar "lo tengo" desde el celu— fallaría con
+            # "database is locked". Commitear acá lo libera entre fetch y fetch.
+            conn.commit()
             refreshed += 1
         except Exception as e:  # noqa — un juego que no baja no debe voltear el update
             log.warning("refresh_tail: no pude traer %s -> %s: %s", oid, type(e).__name__, e)
             failed += 1
-    conn.commit()
     conn.close()
     log.info("refresh_tail: %d refrescados (%d fallidos) de %d en la cola >%d",
              refreshed, failed, len(ids), dump_n)
@@ -392,12 +410,12 @@ def reconcile_top(dump, top_n=None, fetch=None):
         for oid in entrantes:
             try:
                 db.upsert_bgg(conn, fetch(oid))   # rank de BGG; lo pisa el rerank con el enumerado
+                conn.commit()   # por entrante: no retener el lock de escritura durante los fetch
                 altas += 1
             except Exception as e:  # noqa — un entrante que no baja no debe voltear el update
                 log.warning("reconcile_top: no pude traer el entrante %s -> %s: %s",
                             oid, type(e).__name__, e)
                 failed += 1
-        conn.commit()
         conn.close()
     reranked = apply_rank_dump(dump)
     log.info("reconcile_top: altas=%d (fallidas=%d) rerank=%d", altas, failed, reranked)
@@ -496,7 +514,7 @@ def _csv_incoming(text):
     reader = csv.DictReader(io.StringIO(text))
     out = {}
     for row in reader:
-        oid = (row.get("objectid") or "").strip()
+        oid = _clean_oid(row.get("objectid"))
         if not oid:
             continue
         st = _state_from_row(row)

@@ -138,7 +138,14 @@ def count_es_pending(conn, owner_id):
 
 
 def connect():
-    conn = sqlite3.connect(DB_PATH)
+    # check_same_thread=False: FastAPI corre las dependencias y la función de la ruta en hilos
+    # DISTINTOS del threadpool, así que la conexión que abre `get_conn` se usa desde otro hilo y
+    # SQLite lo rechaza por defecto ("SQLite objects created in a thread can only be used in that
+    # same thread"). Es seguro acá porque cada request tiene su propia conexión y la usa un hilo a
+    # la vez —nunca dos en simultáneo—: lo que se apaga es el chequeo de identidad de hilo, no la
+    # serialización. Sin esto el fallo es INTERMITENTE (según qué hilo del pool toque), que es la
+    # peor variante posible.
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
@@ -473,11 +480,19 @@ def delete_saved_rec(conn, owner_id, rec_id):
     conn.execute("DELETE FROM saved_recs WHERE id=? AND owner_id=?", (rec_id, owner_id))
 
 
+# Columnas que un patch puede tocar. Los nombres de columna se INTERPOLAN en el SQL (no pueden ir
+# como parámetro ligado), así que la validación vive acá, pegada al riesgo. Antes el único filtro
+# estaba en el endpoint /api/games/{oid}/state; cualquier caller nuevo heredaba el agujero sin
+# enterarse.
+HOLDING_COLS = {"own", "wishlist", "wishlist_priority", "wishlist_comment",
+                "user_rating", "numplays", "notes", "added_manually", "updated_at"}
+
+
 def set_holding(conn, owner_id, objectid, patch):
-    """Upsert de un holding."""
+    """Upsert de un holding. Descarta del patch cualquier clave que no sea columna conocida."""
     exists = conn.execute("SELECT 1 FROM holdings WHERE owner_id=? AND objectid=?",
                           (owner_id, objectid)).fetchone()
-    patch = dict(patch)
+    patch = {k: v for k, v in patch.items() if k in HOLDING_COLS}
     patch["updated_at"] = int(time.time())
     if not exists:
         patch.setdefault("own", 0)

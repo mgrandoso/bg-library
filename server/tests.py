@@ -9,6 +9,7 @@ db.init()  # garantiza migraciones idempotentes (p. ej. columna es_name) antes d
 
 PASS = 0
 FAIL = 0
+SKIP = 0
 
 
 def check(name, cond):
@@ -19,6 +20,22 @@ def check(name, cond):
     else:
         FAIL += 1
         print(f"  FAIL {name}")
+
+
+def bloque_falló(name, e):
+    """Cierre de un bloque de tests que levantó. Distingue DOS cosas que antes se confundían:
+
+    · falta una dependencia opcional (ImportError) -> OMITIDO, no es una falla. Antes esto salía
+      como FAIL: correr los tests sin `fastapi` instalado daba "152 ok, 4 fail" y parecía que algo
+      estaba roto cuando no había nada roto.
+    · cualquier otra excepción -> FAIL de verdad (un test que se rompió).
+    """
+    global SKIP
+    if isinstance(e, ImportError):
+        SKIP += 1
+        print(f"  skip {name} (falta '{getattr(e, 'name', None) or e}')")
+    else:
+        check(f"{name} ({e})", False)
 
 
 # ---- bgg.parse_id ----
@@ -89,7 +106,7 @@ try:
                              engine="rules", limit=3, owner_id=me)
     check("advisor buy devuelve picks", len(recb["picks"]) > 0)
 except Exception as e:  # noqa
-    check(f"integración DB ({e})", False)
+    bloque_falló("integración DB", e)
 
 # ---- strip de HTML ----
 _stripped = bgg._strip_html("<p>Un <b>gran</b> juego</p> &amp; más")
@@ -137,7 +154,7 @@ try:
     conn.close()
     check("cleanup del perfil temporal", True)
 except Exception as e:  # noqa
-    check(f"import_csv temporal ({e})", False)
+    bloque_falló("import_csv temporal", e)
 
 # ---- ítem 7: desmarcar a "Ninguno" — estado real + GC por rank (membresía dinámica) ----
 try:
@@ -186,7 +203,7 @@ try:
     conn.close()
     check("cleanup ítem 7", True)
 except Exception as e:  # noqa
-    check(f"ítem 7 set_state/GC ({e})", False)
+    bloque_falló("ítem 7 set_state/GC", e)
 
 # ---- ítem 1a: es_name (búsqueda en español + menciones + migración) ----
 try:
@@ -215,7 +232,7 @@ try:
     conn.close()
     check("cleanup ítem 1a", True)
 except Exception as e:  # noqa
-    check(f"ítem 1a es_name ({e})", False)
+    bloque_falló("ítem 1a es_name", e)
 
 # ---- import: want / wanttobuy cuentan como wishlist con prioridad alta ----
 import seed as _seed
@@ -309,7 +326,7 @@ try:
     conn.close()
     check("cleanup ítem 1c", True)
 except Exception as e:  # noqa
-    check(f"ítem 1c resolve_missing_es_names ({e})", False)
+    bloque_falló("ítem 1c resolve_missing_es_names", e)
 
 # ---- tema 3: un update resuelve TODOS los pendientes, partidos en tandas internas ----
 try:
@@ -341,7 +358,7 @@ try:
     conn.close()
     check("cleanup tema 3", True)
 except Exception as e:  # noqa
-    check(f"tema 3 tandas ({e})", False)
+    bloque_falló("tema 3 tandas", e)
 
 # ---- runtime: gemini_caller / resolve_es_names_runtime gatean por presencia de key ----
 import appconfig as _appcfg
@@ -435,7 +452,7 @@ try:
     conn.close()
     check("cleanup apply_rank_dump", True)
 except Exception as e:  # noqa
-    check(f"apply_rank_dump ({e})", False)
+    bloque_falló("apply_rank_dump", e)
 
 # ---- membresía dinámica: reconcile_top da de alta entrantes; el GC baja los caídos no tenidos ----
 # En DB temporal aislado: top_n chico y gc global no pueden correr sobre la base real sin borrarla.
@@ -488,7 +505,7 @@ try:
     conn.close()
     check("cleanup reconcile_top", True)
 except Exception as e:  # noqa
-    check(f"reconcile_top / membresía dinámica ({e})", False)
+    bloque_falló("reconcile_top / membresía dinámica", e)
 finally:
     db.DB_PATH = _orig_db_path
     try:
@@ -534,7 +551,7 @@ try:
     conn.close()
     check("cleanup refresh_tail", True)
 except Exception as e:  # noqa
-    check(f"refresh_tail ({e})", False)
+    bloque_falló("refresh_tail", e)
 finally:
     db.DB_PATH = _orig_db_path
     try:
@@ -600,7 +617,7 @@ try:
     finally:
         bgg.fetch = _ogfetch
 except Exception as e:  # noqa
-    check(f"add_game guard expansión ({e})", False)
+    bloque_falló("add_game guard expansión", e)
 
 # ---- ítem 9: tier de ajuste a N jugadores (fit) en SQL ----
 try:
@@ -623,7 +640,7 @@ try:
     check("fit_case se banca=2", _res["C"] == 2)
     check("fit_case no entra=3", _res["D"] == 3)
 except Exception as e:  # noqa
-    check(f"fit_case ({e})", False)
+    bloque_falló("fit_case", e)
 
 # ---- ítem 9: grupo de mecánicas (OR interno; coop mira mechanics+categories) ----
 try:
@@ -644,7 +661,7 @@ try:
     check("_mech_where OR entre mecánicas", _mech_ids(["Worker Placement", "Cooperative Game"]) == {"WP", "CO"})
     _c2.close()
 except Exception as e:  # noqa
-    check(f"_mech_where ({e})", False)
+    bloque_falló("_mech_where", e)
 
 # ---- ítem 5: conteo de es_name pendientes del perfil ----
 try:
@@ -663,7 +680,7 @@ try:
     conn.commit(); conn.close()
     check("cleanup count_es_pending", True)
 except Exception as e:  # noqa
-    check(f"count_es_pending ({e})", False)
+    bloque_falló("count_es_pending", e)
 
 # ---- ítem 3: expansiones (tabla name-only, gate por base own/wish, upsert, agrupado) ----
 try:
@@ -704,15 +721,22 @@ try:
     conn.commit(); conn.close()
     check("cleanup expansiones", True)
 except Exception as e:  # noqa
-    check(f"expansiones ({e})", False)
+    bloque_falló("expansiones", e)
 
 # ---- ítem 3: el endpoint set_expansion_ep respeta el gate (base no tenido -> 400) ----
 try:
     import app as _app
-    _rr = _app.set_expansion_ep("__QA_NOPE__", {"exp_oid": "Z", "name": "Z", "state": "own"})
+    # Las rutas reciben la conexión por Depends(get_conn). Llamadas directo como función (sin pasar
+    # por FastAPI) hay que pasársela a mano, si no llega el objeto Depends y revienta.
+    _c = db.connect()
+    try:
+        _rr = _app.set_expansion_ep("__QA_NOPE__", {"exp_oid": "Z", "name": "Z", "state": "own"},
+                                    conn=_c)
+    finally:
+        _c.close()
     check("set_expansion_ep bloquea si no tenés el base", getattr(_rr, "status_code", None) == 400)
 except Exception as e:  # noqa
-    check(f"set_expansion_ep gate ({e})", False)
+    bloque_falló("set_expansion_ep gate", e)
 
 # ---- expansiones en el advisor: db.owned_expansions_for (solo 'own', agrupado, con short_desc) ----
 try:
@@ -734,7 +758,7 @@ try:
     conn.commit(); conn.close()
     check("cleanup owned_expansions_for", True)
 except Exception as e:  # noqa
-    check(f"owned_expansions_for ({e})", False)
+    bloque_falló("owned_expansions_for", e)
 
 # ---- expansiones en el prompt del advisor: play las incluye + instruye; buy no ----
 try:
@@ -754,7 +778,7 @@ try:
     check("prompt buy NO incluye expansiones (solo juegos)", "EXPANSIONES QUE POSEE" not in _p_buy)
     check("prompt usa ref corto (#1) en vez del objectid", "#1 |" in _p_play and "id=X1" not in _p_play)
 except Exception as e:  # noqa
-    check(f"expansiones en prompt ({e})", False)
+    bloque_falló("expansiones en prompt", e)
 
 # ---- guard ref-pitch: reasignar el pitch al juego correcto por `name`, y retención de traza ----
 try:
@@ -798,7 +822,7 @@ try:
           len(advisor.prune_trace_lines([_tj.dumps({"ts": _new}) + "\n"] * 150,
                                         max_days=30, max_count=100, now=_now)) == 100)
 except Exception as e:  # noqa
-    check(f"guard ref-pitch + retencion traza ({e})", False)
+    bloque_falló("guard ref-pitch + retencion traza", e)
 
 # ---- recomendaciones guardadas (saved_recs): save/list/get/delete, scope por owner ----
 try:
@@ -823,7 +847,7 @@ try:
     check("delete_saved_rec la elimina", db.get_saved_rec(conn, _me, _rid) is None)
     conn.close()
 except Exception as e:  # noqa
-    check(f"saved_recs ({e})", False)
+    bloque_falló("saved_recs", e)
 
 # ---- import: absorber expansiones coladas (se cuelgan del base own/wish, o se descartan) ----
 try:
@@ -864,7 +888,7 @@ try:
     conn.commit(); conn.close()
     check("cleanup absorb_expansion", True)
 except Exception as e:  # noqa
-    check(f"absorb_expansion ({e})", False)
+    bloque_falló("absorb_expansion", e)
 
-print(f"\n{PASS} ok, {FAIL} fail")
+print(f"\n{PASS} ok, {FAIL} fail" + (f", {SKIP} omitidos (dependencias ausentes)" if SKIP else ""))
 raise SystemExit(1 if FAIL else 0)

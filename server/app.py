@@ -3,9 +3,10 @@ import csv
 import io
 import json
 import os
+import re
 import time
 
-from fastapi import FastAPI, Body, UploadFile, File, Form, Query, BackgroundTasks
+from fastapi import FastAPI, Body, Depends, UploadFile, File, Form, Query, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -36,6 +37,25 @@ async def no_cache_assets(request, call_next):
     return resp
 
 
+def get_conn():
+    """Conexión SQLite por request, cerrada SIEMPRE (dependencia de FastAPI).
+
+    Antes cada ruta hacía `conn = db.connect()` … `conn.close()` al final, sin try/finally: si algo
+    levantaba en el medio —una query mal formada, un JSON corrupto al parsear una fila— la conexión
+    quedaba viva. Con una transacción de escritura abierta eso bloquea TODAS las escrituras
+    siguientes hasta que el recolector la junte, y el síntoma que ve el usuario es un
+    "database is locked" que aparece y desaparece sin patrón.
+
+    Ojo: una conexión abierta SIN transacción no retiene ningún lock, así que sostenerla durante
+    una llamada de red no molesta. Lo que sí molestaba —transacciones abiertas durante fetches de
+    BGG— se arregló aparte, commiteando por ítem en update/enrich/refresh."""
+    conn = db.connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def _is_top(rank_overall):
     """True si el rank lo pone en el top canónico (rank<=TOP_N). El front usa `is_top` para decidir
     si al desmarcar a 'Ninguno' pide confirmación (fuera del top => se borra de la base)."""
@@ -44,87 +64,81 @@ def _is_top(rank_overall):
 
 def _me():
     conn = db.connect()
-    me = db.get_me(conn)
-    conn.close()
-    return me
+    try:
+        return db.get_me(conn)
+    finally:
+        conn.close()
 
 
 # ---------------- owners / perfiles ----------------
 
 @app.get("/api/owners")
-def owners():
-    conn = db.connect()
+def owners(conn=Depends(get_conn)):
     db.get_me(conn)  # garantiza que exista 'Vos'
-    data = db.list_owners(conn)
-    conn.close()
-    return {"owners": data}
+    return {"owners": db.list_owners(conn)}
 
 
 @app.post("/api/owners")
-def create_owner(payload: dict = Body(...)):
+def create_owner(payload: dict = Body(...), conn=Depends(get_conn)):
     name = (payload.get("name") or "").strip()
     if not name:
         return JSONResponse({"error": "falta el nombre"}, status_code=400)
-    conn = db.connect()
     oid = db.ensure_owner(conn, name, is_me=1 if payload.get("is_me") else 0)
-    conn.close()
     return {"id": oid, "name": name}
 
 
 @app.patch("/api/owners/{oid}")
-def rename_owner(oid: int, payload: dict = Body(...)):
+def rename_owner(oid: int, payload: dict = Body(...), conn=Depends(get_conn)):
+    """Renombra un perfil. `owners.name` es UNIQUE: sin este chequeo, renombrar a un nombre ya usado
+    reventaba con IntegrityError -> 500 crudo (y el front lo comía en silencio)."""
     name = (payload.get("name") or "").strip()
-    conn = db.connect()
-    if name:
-        conn.execute("UPDATE owners SET name=? WHERE id=?", (name, oid))
+    if not name:
+        return JSONResponse({"error": "falta el nombre"}, status_code=400)
+    if conn.execute("SELECT 1 FROM owners WHERE name=? AND id<>?", (name, oid)).fetchone():
+        return JSONResponse({"error": f"ya existe un perfil llamado «{name}»"}, status_code=409)
+    if not conn.execute("SELECT 1 FROM owners WHERE id=?", (oid,)).fetchone():
+        return JSONResponse({"error": "ese perfil no existe"}, status_code=404)
+    conn.execute("UPDATE owners SET name=? WHERE id=?", (name, oid))
     conn.commit()
-    conn.close()
-    return {"ok": True}
+    return {"ok": True, "name": name}
 
 
 @app.post("/api/owners/{oid}/reset")
-def reset_owner(oid: int):
+def reset_owner(oid: int, conn=Depends(get_conn)):
     """Vacía la colección de un perfil (borra todos sus holdings) sin borrar el perfil. Pensado
     para 'empezar de cero' con tu propio perfil (que no se puede borrar). Después corre el GC para
     limpiar del catálogo los juegos que quedaron sin dueño y no son top-5000."""
-    conn = db.connect()
     n = conn.execute("SELECT COUNT(*) c FROM holdings WHERE owner_id=?", (oid,)).fetchone()["c"]
     conn.execute("DELETE FROM holdings WHERE owner_id=?", (oid,))
     conn.commit()
     orphans = db.gc_orphans(conn, db.top_ids(conn))
     conn.commit()
-    conn.close()
     return {"ok": True, "cleared": n, "gc": len(orphans)}
 
 
 @app.delete("/api/owners/{oid}")
-def delete_owner(oid: int):
-    conn = db.connect()
+def delete_owner(oid: int, conn=Depends(get_conn)):
     row = conn.execute("SELECT is_me FROM owners WHERE id=?", (oid,)).fetchone()
     if row and row["is_me"]:
-        conn.close()
         return JSONResponse({"error": "no se puede borrar tu perfil"}, status_code=400)
     conn.execute("DELETE FROM holdings WHERE owner_id=?", (oid,))
     conn.execute("DELETE FROM owners WHERE id=?", (oid,))
     conn.commit()
-    conn.close()
     return {"ok": True}
 
 
 # ---------------- juegos ----------------
 
 @app.get("/api/games")
-def list_games(owner: int = 0):
+def list_games(owner: int = 0, conn=Depends(get_conn)):
     """Solo tu colección (own + wishlist). El catálogo completo NO viaja acá; el
     browse del top vive en /api/bgg (paginado). Mantiene el payload liviano."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     games = [g for g in db.games_for_owner(conn, owner, top_n=db.TOP_N)
              if g.get("own") or g.get("wishlist")]
     # expansiones del perfil por juego (ítem 3): pintan la sección de la ficha y habilitan el
     # buscador por nombre de expansión (Biblioteca matchea expas 📦, Wishlist expas ⭐).
     exps = db.expansions_for(conn, owner)
-    conn.close()
     for g in games:
         g.pop("description", None)   # descripción larga on-demand en la ficha
         g["expansions"] = exps.get(g["objectid"], [])
@@ -149,6 +163,12 @@ _PLAYTIME = "COALESCE(NULLIF(g.maxplaytime,0), NULLIF(g.minplaytime,0), 0)"
 # "Cooperative"/"Co-operative"); el resto matchea el string canónico exacto dentro del JSON mechanics.
 _COOP_WHERE = ("(g.mechanics LIKE '%Cooperative%' OR g.categories LIKE '%Cooperative%' "
                "OR g.mechanics LIKE '%Co-operative%' OR g.categories LIKE '%Co-operative%')")
+
+
+def _like_escape(s):
+    """Escapa los comodines de LIKE en texto del usuario, para usar con ESCAPE '\\'. La barra va
+    primero (si no, se re-escaparían las barras que agregamos después)."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _mech_where(mechs):
@@ -186,17 +206,22 @@ def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = "",
                types: str = "", mechanics: str = "", players: int = 0,
                time_f: str = Query("", alias="time"), weight: str = "",
                designer: str = "",
-               sort: str = "rank", direction: int = Query(1, alias="dir")):
+               sort: str = "rank", direction: int = Query(1, alias="dir"),
+               conn=Depends(get_conn)):
     """Browse del top de BGG (por rank) con tu estado (own/wishlist) por juego.
     Filtros y orden server-side (mismos criterios que la Biblioteca). Paginado."""
-    conn = db.connect()
+    per = max(1, min(per, 200))    # tope: sin él, ?per=999999 vuelca el catálogo entero en una request
+    page = max(0, page)            # un page negativo daría un OFFSET negativo
     owner = owner or db.get_me(conn)
     where = ["g.rank_overall IS NOT NULL", "g.rank_overall > 0"]
     params = []
     if q.strip():
-        # matchea nombre inglés o español (ítem 1): "la resistencia" encuentra The Resistance
-        where.append("(g.name LIKE ? COLLATE NOCASE OR g.es_name LIKE ? COLLATE NOCASE)")
-        params += [f"%{q.strip()}%", f"%{q.strip()}%"]
+        # matchea nombre inglés o español (ítem 1): "la resistencia" encuentra The Resistance.
+        # Se escapan los comodines de LIKE ('%' y '_'): sin eso, buscar "50%" matcheaba TODO.
+        like = f"%{_like_escape(q.strip())}%"
+        where.append("(g.name LIKE ? ESCAPE '\\' COLLATE NOCASE "
+                     "OR g.es_name LIKE ? ESCAPE '\\' COLLATE NOCASE)")
+        params += [like, like]
     sel_types = [t.strip() for t in types.split(",") if t.strip()]
     if sel_types:
         # subdomains se guarda como JSON: ["Strategy Games", ...]; matcheo por el nombre entrecomillado
@@ -245,7 +270,6 @@ def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = "",
         ORDER BY {order_sql}
         LIMIT ? OFFSET ?
     """, [owner] + params + [per, page * per]).fetchall()
-    conn.close()
     games = []
     for r in rows:
         g = db.row_to_game(r)
@@ -258,9 +282,8 @@ def bgg_browse(owner: int = 0, page: int = 0, per: int = 48, q: str = "",
 
 
 @app.get("/api/games/{oid}/description")
-def game_description(oid: str):
+def game_description(oid: str, conn=Depends(get_conn)):
     """Descripción completa (lazy): la trae de BGG y cachea si falta."""
-    conn = db.connect()
     row = conn.execute("SELECT description FROM games WHERE objectid=?", (oid,)).fetchone()
     desc = row["description"] if row else None
     if not desc:
@@ -272,12 +295,11 @@ def game_description(oid: str):
                 conn.commit()
         except Exception:
             desc = None
-    conn.close()
     return {"description": desc or ""}
 
 
 @app.post("/api/games/{oid}/state")
-def set_state(oid: str, payload: dict = Body(...), owner: int = 0):
+def set_state(oid: str, payload: dict = Body(...), owner: int = 0, conn=Depends(get_conn)):
     allowed = {"own", "wishlist", "wishlist_priority", "wishlist_comment",
                "user_rating", "numplays", "notes"}
     patch = {k: v for k, v in payload.items() if k in allowed}
@@ -287,7 +309,6 @@ def set_state(oid: str, payload: dict = Body(...), owner: int = 0):
         patch["wishlist"] = 0
     if patch.get("wishlist") == 1:
         patch["own"] = 0
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     db.set_holding(conn, owner, oid, patch)
     conn.commit()
@@ -300,17 +321,15 @@ def set_state(oid: str, payload: dict = Body(...), owner: int = 0):
         conn.commit()
         if db.remove_if_orphan(conn, oid):
             conn.commit()
-            conn.close()
             return {"ok": True, "removed": True, "objectid": oid}
     g = db.game_with_state(conn, owner, oid)
-    conn.close()
     return g or {"ok": True, "removed": True, "objectid": oid}
 
 
 # ---------------- alta / búsqueda ----------------
 
 @app.get("/api/search")
-def search_bgg(q: str):
+def search_bgg(q: str, conn=Depends(get_conn)):
     """Búsqueda híbrida local-first (ítem 8): BGG hace el matching (encuentra bien, incluso lo que
     no tenés), la base local hidrata con imagen/datos válidos los que ya están (thumbnail que carga,
     instantáneo). Los que no están: sin thumbnail (placeholder en el front), la data completa se
@@ -322,12 +341,10 @@ def search_bgg(q: str):
     ids = [c["objectid"] for c in cands]
     local = {}
     if ids:
-        conn = db.connect()
         ph = ",".join("?" for _ in ids)
         for r in conn.execute(
                 f"SELECT objectid, thumb, image FROM games WHERE objectid IN ({ph})", ids):
             local[r["objectid"]] = r
-        conn.close()
     for c in cands:
         loc = local.get(c["objectid"])
         c["local"] = loc is not None
@@ -336,19 +353,16 @@ def search_bgg(q: str):
 
 
 @app.get("/api/lookup/{oid}")
-def lookup_game(oid: str, owner: int = 0):
+def lookup_game(oid: str, owner: int = 0, conn=Depends(get_conn)):
     """Trae un juego para MOSTRAR su ficha (ítem 8). Si ya está en la base, devuelve el registro
     local con tu estado (`saved=True`). Si no, lo trae de BGG SIN persistirlo (`saved=False`): la
     ficha se muestra con "Ninguno" y recién se guarda si marcás own/wish. Así, si cerrás sin marcar,
     no queda nada en la base (no genera huérfanos)."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     g = db.game_with_state(conn, owner, oid)
     if g is not None:
         g["is_top"] = _is_top(g.get("rank_overall"))
-        conn.close()
         return {"game": g, "saved": True}
-    conn.close()
     try:
         rec = bgg.fetch(oid)
     except Exception as e:  # noqa — red; queda logueado en bgg._get
@@ -365,7 +379,7 @@ def lookup_game(oid: str, owner: int = 0):
 
 
 @app.post("/api/games/add")
-def add_game(payload: dict = Body(...), owner: int = 0):
+def add_game(payload: dict = Body(...), owner: int = 0, conn=Depends(get_conn)):
     raw = str(payload.get("objectid") or payload.get("query") or "")
     oid = bgg.parse_id(raw)
     if not oid:
@@ -381,7 +395,6 @@ def add_game(payload: dict = Body(...), owner: int = 0):
         return JSONResponse({"error": "es una expansión: agregala desde la ficha del juego base",
                              "is_expansion": True, "expands": rec.get("expands") or [],
                              "name": rec.get("name")}, status_code=400)
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     db.upsert_bgg(conn, rec)
     as_status = payload.get("status", "wishlist")
@@ -396,33 +409,28 @@ def add_game(payload: dict = Body(...), owner: int = 0):
     g = db.game_with_state(conn, owner, oid)
     if g is not None:
         g["is_top"] = _is_top(g.get("rank_overall"))
-    conn.close()
     return g or {"ok": True}
 
 
 # ---------------- expansiones (ítem 3) ----------------
 
 @app.get("/api/games/{base}/expansions")
-def list_expansions(base: str, owner: int = 0):
+def list_expansions(base: str, owner: int = 0, conn=Depends(get_conn)):
     """Las expansiones que el perfil registró para el juego `base` (nombre + estado 📦/⭐). Pinta la
     sección "Expansiones" de la ficha. `can_add` = el base está en tu colección/wishlist."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     mine = db.expansions_for(conn, owner, base)
     can_add = db.owns_or_wishes(conn, owner, base)
-    conn.close()
     return {"mine": mine, "can_add": can_add}
 
 
 @app.get("/api/games/{base}/expansions/catalog")
-def expansions_catalog(base: str, owner: int = 0):
+def expansions_catalog(base: str, owner: int = 0, conn=Depends(get_conn)):
     """Panel "＋": expansiones OFICIALES del juego (de BGG, lazy) mergeadas con tu estado, para
     marcar/editar. Incluye al final las tuyas que no figuren en la lista oficial (rarezas/promos)."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     can_add = db.owns_or_wishes(conn, owner, base)
     mine = {e["exp_oid"]: e for e in db.expansions_for(conn, owner, base)}
-    conn.close()
     try:
         official = bgg.expansions_of(base)
     except Exception as e:  # noqa — red; queda logueado en bgg._get
@@ -437,7 +445,7 @@ def expansions_catalog(base: str, owner: int = 0):
 
 
 @app.post("/api/games/{base}/expansions")
-def set_expansion_ep(base: str, payload: dict = Body(...), owner: int = 0):
+def set_expansion_ep(base: str, payload: dict = Body(...), owner: int = 0, conn=Depends(get_conn)):
     """Agrega/edita una expansión colgada del juego `base`. Gate: el base debe estar en own o wish.
     `state` ∈ {'own','wish'}. Solo guarda nombre + estado (no trackea prioridad)."""
     exp_oid = str(payload.get("exp_oid") or "").strip()
@@ -445,10 +453,8 @@ def set_expansion_ep(base: str, payload: dict = Body(...), owner: int = 0):
     state = payload.get("state") or "wish"
     if not exp_oid or not name:
         return JSONResponse({"error": "falta exp_oid o name"}, status_code=400)
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     if not db.owns_or_wishes(conn, owner, base):
-        conn.close()
         return JSONResponse({"error": "agregá primero el juego base a tu colección o wishlist"},
                             status_code=400)
     # short_description: del payload (la ficha de búsqueda ya la tiene) o, si no, un fetch
@@ -461,38 +467,32 @@ def set_expansion_ep(base: str, payload: dict = Body(...), owner: int = 0):
             short_desc = None
     db.set_expansion(conn, owner, base, exp_oid, name, state, short_description=short_desc)
     conn.commit()
-    mine = db.expansions_for(conn, owner, base)
-    conn.close()
-    return {"mine": mine, "can_add": True}
+    return {"mine": db.expansions_for(conn, owner, base), "can_add": True}
 
 
 @app.delete("/api/games/{base}/expansions/{exp_oid}")
-def remove_expansion_ep(base: str, exp_oid: str, owner: int = 0):
+def remove_expansion_ep(base: str, exp_oid: str, owner: int = 0, conn=Depends(get_conn)):
     """Quita una expansión del juego (para este perfil)."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     db.remove_expansion(conn, owner, base, exp_oid)
     conn.commit()
     mine = db.expansions_for(conn, owner, base)
     can_add = db.owns_or_wishes(conn, owner, base)
-    conn.close()
     return {"mine": mine, "can_add": can_add}
 
 
 # ---------------- recomendaciones guardadas del advisor (opt-in) ----------------
 
 @app.get("/api/saved")
-def list_saved(owner: int = 0):
+def list_saved(owner: int = 0, conn=Depends(get_conn)):
     """Metadata de las recomendaciones guardadas del perfil (más nuevas primero)."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     recs = db.saved_recs_for(conn, owner)
-    conn.close()
     return {"saved": recs}
 
 
 @app.post("/api/saved")
-def save_rec_ep(payload: dict = Body(...), owner: int = 0):
+def save_rec_ep(payload: dict = Body(...), owner: int = 0, conn=Depends(get_conn)):
     """Guarda una recomendación (opt-in). Body: {title, mode, engine, result}. `result` es el
     snapshot del resultado tal cual se mostró (picks, etc.) — se guarda idéntico."""
     result = payload.get("result")
@@ -501,48 +501,40 @@ def save_rec_ep(payload: dict = Body(...), owner: int = 0):
     title = (payload.get("title") or "Recomendación").strip()
     mode = payload.get("mode") or result.get("mode") or "play"
     engine = payload.get("engine") or result.get("engine") or "rules"
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     rid = db.save_rec(conn, owner, title, mode, engine, json.dumps(result, ensure_ascii=False))
     conn.commit()
-    conn.close()
     return {"id": rid}
 
 
 @app.get("/api/saved/{rec_id}")
-def get_saved(rec_id: int, owner: int = 0):
+def get_saved(rec_id: int, owner: int = 0, conn=Depends(get_conn)):
     """Una recomendación guardada con su snapshot completo (para volver a mostrarla)."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     rec = db.get_saved_rec(conn, owner, rec_id)
-    conn.close()
     if not rec:
         return JSONResponse({"error": "no encontrada"}, status_code=404)
     return {"rec": rec}
 
 
 @app.patch("/api/saved/{rec_id}")
-def rename_saved(rec_id: int, payload: dict = Body(...), owner: int = 0):
+def rename_saved(rec_id: int, payload: dict = Body(...), owner: int = 0, conn=Depends(get_conn)):
     """Renombra una recomendación guardada. Body: {title}."""
     title = (payload.get("title") or "").strip()
     if not title:
         return JSONResponse({"error": "falta el título"}, status_code=400)
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     db.rename_saved_rec(conn, owner, rec_id, title)
     conn.commit()
-    conn.close()
     return {"ok": True}
 
 
 @app.delete("/api/saved/{rec_id}")
-def delete_saved(rec_id: int, owner: int = 0):
+def delete_saved(rec_id: int, owner: int = 0, conn=Depends(get_conn)):
     """Borra una recomendación guardada del perfil."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     db.delete_saved_rec(conn, owner, rec_id)
     conn.commit()
-    conn.close()
     return {"ok": True}
 
 
@@ -559,14 +551,12 @@ async def import_csv(background_tasks: BackgroundTasks,
     Gemini) — no bloquea la respuesta; si no hay key, quedan NULL para el próximo update (ítem 1c)."""
     raw = await file.read()
     text = raw.decode("utf-8-sig", errors="replace")
-    conn = db.connect()
     if new_profile == "1" and owner_name.strip():
         target = db.ensure_owner(conn, owner_name.strip(), is_me=0)
     elif owner_id:
         target = owner_id
     else:
         target = db.get_me(conn)
-    conn.close()
     res = seedmod.import_csv(text, target, mode=mode, fetch_missing=False)
     res["owner_id"] = target
     background_tasks.add_task(seedmod.resolve_es_names_runtime)  # alta masiva -> 1 batch si hay key
@@ -595,16 +585,14 @@ def update_ep():
 
 
 @app.get("/api/nudges")
-def nudges(owner: int = 0):
+def nudges(owner: int = 0, conn=Depends(get_conn)):
     """Datos para los nudges no-nag (ítem 5): cuántos es_name del perfil están pendientes, hace
     cuánto no se corre 'Actualizar', y si hay key de Gemini (el nudge de es_name solo aplica con
     key: sin ella no se pueden resolver). El front decide si mostrar y respeta el 'no molestar'."""
     import datetime
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     es_pending = db.count_es_pending(conn, owner)
     last_update = db.meta_get(conn, "last_update")
-    conn.close()
     stale_days = None
     if last_update:
         try:
@@ -634,10 +622,9 @@ async def reconcile_apply_ep(file: UploadFile = File(...), owner_id: int = Form(
 
 
 @app.get("/api/enrich")
-def enrich(owner: int = 0, limit: int = 20):
+def enrich(owner: int = 0, limit: int = 20, conn=Depends(get_conn)):
     """Enriquecimiento perezoso: completa datos BGG faltantes (imagen/diseñadores)
     de los juegos del perfil. Se llama en loop desde el onboarding/import."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     rows = conn.execute("""
         SELECT DISTINCT g.objectid FROM games g
@@ -656,34 +643,30 @@ def enrich(owner: int = 0, limit: int = 20):
                 seedmod.absorb_expansion(conn, owner, rec)
             else:
                 db.upsert_bgg(conn, rec)
+            conn.commit()   # por juego: el lock de escritura no se retiene durante el próximo fetch
             done += 1
         except Exception:
             pass
-    conn.commit()
-    conn.close()
     return {"enriched": done, "remaining": max(0, len(remaining_ids) - done)}
 
 
 @app.get("/api/freshness")
-def freshness(owner: int = 0):
+def freshness(owner: int = 0, conn=Depends(get_conn)):
     """Cuán viejos están los datos del perfil (rankings cambian de a poco)."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     row = conn.execute("""
         SELECT MIN(g.fetched_at) oldest, COUNT(*) total FROM games g
         JOIN holdings h ON h.objectid=g.objectid AND h.owner_id=?
         WHERE g.fetched_at IS NOT NULL AND g.fetched_at>0
     """, (owner,)).fetchone()
-    conn.close()
     oldest = row["oldest"]
     days = int((time.time() - oldest) / 86400) if oldest else None
     return {"oldest_days": days, "total": row["total"]}
 
 
 @app.get("/api/refresh")
-def refresh(owner: int = 0, limit: int = 25, days: int = 30):
+def refresh(owner: int = 0, limit: int = 25, days: int = 30, conn=Depends(get_conn)):
     """Re-baja datos de BGG (ranking incluido) de los juegos más viejos que `days`."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     cutoff = int(time.time()) - days * 86400
     rows = conn.execute("""
@@ -697,11 +680,10 @@ def refresh(owner: int = 0, limit: int = 25, days: int = 30):
     for oid in ids[:limit]:
         try:
             db.upsert_bgg(conn, bgg.fetch(oid))
+            conn.commit()   # por juego: el lock de escritura no se retiene durante el próximo fetch
             done += 1
         except Exception:
             pass
-    conn.commit()
-    conn.close()
     return {"refreshed": done, "remaining": max(0, len(ids) - done)}
 
 
@@ -711,13 +693,11 @@ EXPORT_COLS = ["objectname", "objectid", "rating", "numplays", "weight", "own",
 
 
 @app.get("/api/export.csv")
-def export_csv(owner: int = 0):
-    conn = db.connect()
+def export_csv(owner: int = 0, conn=Depends(get_conn)):
     owner = owner or db.get_me(conn)
     name = conn.execute("SELECT name FROM owners WHERE id=?", (owner,)).fetchone()
     name = name["name"] if name else "coleccion"
     games = db.games_for_owner(conn, owner)
-    conn.close()
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(EXPORT_COLS)
@@ -741,12 +721,10 @@ def export_csv(owner: int = 0):
 # ---------------- stats ----------------
 
 @app.get("/api/stats")
-def stats(owner: int = 0, source: str = "own"):
+def stats(owner: int = 0, source: str = "own", conn=Depends(get_conn)):
     """Estadísticas del perfil. source='own' (biblioteca) | 'wishlist'."""
-    conn = db.connect()
     owner = owner or db.get_me(conn)
     games = db.games_for_owner(conn, owner)
-    conn.close()
     owned = [g for g in games if g.get("own")]
     wish = [g for g in games if g.get("wishlist")]
     sel = wish if source == "wishlist" else owned   # sobre qué conjunto se calculan las stats
@@ -844,9 +822,30 @@ def set_config(payload: dict = Body(...)):
 
 # ---------------- estático ----------------
 
+_ASSET_V = re.compile(r"/(styles\.css|app\.js)\?v=\d+")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return FileResponse(os.path.join(WEB, "index.html"))
+    """Sirve index.html con el cache-buster de styles.css/app.js derivado del mtime del archivo.
+
+    Antes ese número (?v=84) se subía A MANO en cada cambio de CSS/JS. No versiona nada —no se
+    guarda ninguna copia—: solo cambia la URL para que el navegador no reuse la vieja. Como el
+    middleware ya manda `no-store`, el número era redundante salvo por iOS Safari, que a veces
+    lo ignora al volver con el botón atrás. Derivándolo del mtime se conserva ese seguro y
+    desaparece el paso manual (que se olvidaba, y entonces el celular seguía con el CSS viejo).
+    El número que quede escrito en el archivo ya no importa: se reemplaza al servir."""
+    with open(os.path.join(WEB, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+
+    def stamp(m):
+        asset = m.group(1)
+        try:
+            return f"/{asset}?v={int(os.path.getmtime(os.path.join(WEB, asset)))}"
+        except OSError:
+            return m.group(0)   # si el archivo no está, dejamos lo que había
+
+    return HTMLResponse(_ASSET_V.sub(stamp, html))
 
 
 app.mount("/", StaticFiles(directory=WEB), name="web")

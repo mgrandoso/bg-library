@@ -1,0 +1,56 @@
+name: tests
+
+# Los tests (server/tests.py) corren en <1s y no piden red, pero hasta ahora había que acordarse
+# de correrlos a mano. Acá corren solos en cada push/PR a main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"    # la misma que usa el Dockerfile
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Tests
+        # Falla el job si hay algún FAIL. Los "omitidos" (dependencia ausente) no cuentan como
+        # falla, pero acá no debería haber ninguno: requirements.txt trae todo.
+        run: python server/tests.py
+
+  # Prueba de humo en WebKit: levanta la app de verdad y verifica que renderiza sin errores de
+  # consola. Existe porque la preview de desarrollo es Chromium y NO reproduce WebKit — así se
+  # coló, por ejemplo, que Safari ignora el padding de un <select> (quedaba 21px contra 39px).
+  webkit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt playwright
+          python -m playwright install --with-deps webkit
+
+      - name: Levantar la app
+        # La DB nace vacía y se siembra sola con el preseed del repo (seed.ensure_seeded).
+        run: |
+          python -m uvicorn app:app --app-dir server --host 127.0.0.1 --port 8778 &
+          for i in $(seq 1 45); do
+            curl -sf http://127.0.0.1:8778/api/config >/dev/null && break
+            sleep 1
+          done
+
+      - name: Humo en WebKit
+        run: python build/smoke_webkit.py

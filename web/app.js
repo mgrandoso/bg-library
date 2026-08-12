@@ -87,13 +87,24 @@ const BGGV = { games: [], page: 0, total: 0, hasMore: false, loading: false, own
    cualquier breakpoint (rotar/redimensionar) repintamos para reconstruir la barra que corresponde.
    - isMobile()  = solo celular (≤640): ficha apilada, "(N)" del perfil oculto, Advisor "ver más".
    - isCompact() = celular O tablet vertical: layout general compacto (nav iconos + filtros acordeón). */
+/* Los breakpoints son SOLO por ancho, sin `orientation`. Antes isCompact() exigía portrait entre
+   641 y 1024, así que una ventana ANCHA Y BAJA (achicar el navegador en PC, que siempre queda
+   landscape) caía en una zona muerta 641–1024 donde no matcheaba ninguna query y volvía a PC:
+   la secuencia al achicar era PC → tablet → PC otra vez → celular. Además el corte estaba en el
+   lugar equivocado: los filtros ya envolvían en dos filas desde ~1100 pero recién colapsaban en
+   940. Medido en WebKit: la línea 1 (buscador + 5 selects + orden) entra hasta 1120px y envuelve
+   en 1100 → ese es el corte. Ahora es monotónico: cada vez que achicás, el layout solo puede
+   simplificarse, nunca volver atrás. */
 const mqMobile = window.matchMedia('(max-width: 640px)');
 function isMobile() { return mqMobile.matches; }
-const mqCompact = window.matchMedia('(max-width: 640px), (min-width: 641px) and (max-width: 1024px) and (orientation: portrait)');
+// ≤1119: la línea 1 ya no entra → los filtros se agrupan en desplegables (Filtros/Tipo/Mecánicas).
+// Cubre celular, tablet vertical Y la ventana de PC angosta (que antes quedaba en la zona muerta).
+const mqCompact = window.matchMedia('(max-width: 1119px)');
 function isCompact() { return mqCompact.matches; }
-// tablet HORIZONTAL (641–1024, landscape): la línea 1 de filtros queda inline como PC, pero la
-// línea 2 pasa a DOS botones colapsables (Tipo / Mecánica) para no desbordar el ancho.
-const mqTabLand = window.matchMedia('(orientation: landscape) and (min-width: 1025px) and (max-width: 1366px)');
+// 1120–1366: la línea 1 entra inline como PC, pero los 8 chips de tipo + Mecánicas apilarían
+// varias filas → esa línea 2 pasa a DOS botones colapsables. Es el caso del iPad horizontal y
+// también el de una ventana de PC mediana.
+const mqTabLand = window.matchMedia('(min-width: 1120px) and (max-width: 1366px)');
 function isTabletLandscape() { return mqTabLand.matches; }
 // palabras del resumen de ficha antes del "ver más", por dispositivo: celular 60, tablet (vertical y
 // horizontal) 70, PC 80. isCompact() incluye celular → chequear isMobile() primero.
@@ -103,7 +114,6 @@ function descLimit() {
   return 80;                                            // PC
 }
 function onBreakpointChange() {
-  if (typeof fillOwnerSel === 'function' && S.owners) fillOwnerSel();   // "(N)" del perfil según plataforma
   if (coverObserver) { coverObserver.disconnect(); coverObserver = null; }  // recalcula el margen (2× viewport)
   if (typeof render === 'function') render();
 }
@@ -230,8 +240,10 @@ function bindTop() {
     const h = document.documentElement;
     h.dataset.theme = h.dataset.theme === 'dark' ? 'light' : 'dark';
     localStorage.setItem('theme', h.dataset.theme);
+    syncThemeColor();          // día/noche también cambia el --bg → repintar la barra de estado
   });
   if (localStorage.getItem('theme')) document.documentElement.dataset.theme = localStorage.getItem('theme');
+  syncThemeColor();
   $('#btnAdd').addEventListener('click', () => { if (ensureUnlocked()) openAdd(); });
   $('#btnLock').addEventListener('click', toggleLock);
   $('#btnCfg').addEventListener('click', () => openData());   // hub único: perfiles + datos + config
@@ -278,6 +290,15 @@ function applyAppearance() {
   if (S.appearance === 'classic') delete root.dataset.appearance;
   else root.dataset.appearance = S.appearance;
   const tb = $('#btnTheme'); if (tb) tb.style.display = S.appearance === 'classic' ? '' : 'none';
+  syncThemeColor();
+}
+// Tiñe la barra de estado del sistema (y el fondo del cambiador de apps) con el --bg del tema
+// activo. Sin esto, agregada a la pantalla de inicio, la Ludoteca en tema Playa mostraba una
+// franja oscura arriba que no era de ningún tema. Se lee del CSS para no duplicar los colores acá.
+function syncThemeColor() {
+  const meta = document.querySelector('meta[name="theme-color"]'); if (!meta) return;
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  if (bg) meta.setAttribute('content', bg);
 }
 function setAppearance(a) {
   if (!APPEARANCES.includes(a)) return;
@@ -2189,29 +2210,47 @@ function openData(tab = 'perfiles') {
         <button class="btn ghost rst" style="padding:6px 10px" title="Vaciar la colección (empezar de cero)">♻</button>
         ${o.is_me ? '' : '<button class="btn ghost del" style="padding:6px 10px;color:var(--danger)" title="Borrar perfil">🗑</button>'}
       </div>`);
+      // Los tres usan los diálogos in-app (askName/askConfirm), NO prompt()/confirm() nativos: en
+      // webviews y en la app agregada a la pantalla de inicio esos vienen suprimidos y devuelven
+      // undefined -> el botón "no respondía". Y todos van con try/catch: sin él, un error del
+      // backend (p. ej. renombrar a un nombre que ya existe, que ahora devuelve 409) moría en una
+      // promesa rechazada y el usuario no veía absolutamente nada.
       row.querySelector('.ren').addEventListener('click', async () => {
         if (!ensureUnlocked()) return;
-        const name = prompt('Nuevo nombre:', o.name); if (!name) return;
-        await api('/owners/' + o.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-        await loadOwners(); paintOwners(); toast('Renombrado');
+        const name = await askName('Renombrar perfil', o.name);
+        if (name == null || name === o.name) return;
+        try {
+          await api('/owners/' + o.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+          await loadOwners(); paintOwners(); fillOwnerSel(); toast('Renombrado');
+        } catch (e) { toast('Error: ' + e.message); }
       });
       row.querySelector('.rst').addEventListener('click', async () => {
         if (!ensureUnlocked()) return;
         if ((o.own_count + o.wish_count) === 0) { toast('Ese perfil ya está vacío'); return; }
-        if (!confirm(`¿Vaciar la colección de ${o.name}? Se borran sus ${o.own_count} juegos y ${o.wish_count} de wishlist. El perfil queda, pero vacío. No se puede deshacer.`)) return;
-        const r = await api('/owners/' + o.id + '/reset', { method: 'POST' });
-        await loadOwners(); paintOwners();
-        if (S.owner === o.id) { await loadGames(); render(); }
-        toast(`Colección vaciada (${r.cleared} juegos)`);
-        if (o.is_me && S.owner === o.id) { ov.remove(); maybeOnboard(); }  // ofrecé recargar de cero
+        const ok = await askConfirm(
+          `¿Vaciar la colección de ${o.name}?\n\nSe borran sus ${o.own_count} juegos y ${o.wish_count} de wishlist. El perfil queda, pero vacío. No se puede deshacer.`,
+          { ok: 'Sí, vaciar' });
+        if (!ok) return;
+        try {
+          const r = await api('/owners/' + o.id + '/reset', { method: 'POST' });
+          await loadOwners(); paintOwners();
+          if (S.owner === o.id) { await loadGames(); render(); }
+          toast(`Colección vaciada (${r.cleared} juegos)`);
+          if (o.is_me && S.owner === o.id) { ov.remove(); maybeOnboard(); }  // ofrecé recargar de cero
+        } catch (e) { toast('Error: ' + e.message); }
       });
       const del = row.querySelector('.del');
       if (del) del.addEventListener('click', async () => {
         if (!ensureUnlocked()) return;
-        if (!confirm(`¿Borrar el perfil de ${o.name} y su colección?`)) return;
-        await api('/owners/' + o.id, { method: 'DELETE' });
-        if (S.owner === o.id) S.owner = 0;
-        await loadOwners(); if (!S.owner) S.owner = S.owners[0].id; await loadGames(); paintOwners(); render(); toast('Perfil borrado');
+        const ok = await askConfirm(`¿Borrar el perfil de ${o.name} y su colección?`,
+          { ok: 'Sí, borrar' });
+        if (!ok) return;
+        try {
+          await api('/owners/' + o.id, { method: 'DELETE' });
+          if (S.owner === o.id) S.owner = 0;
+          await loadOwners(); if (!S.owner) S.owner = S.owners[0].id;
+          await loadGames(); paintOwners(); fillOwnerSel(); render(); toast('Perfil borrado');
+        } catch (e) { toast('Error: ' + e.message); }
       });
       list.append(row);
     });
@@ -2392,7 +2431,7 @@ function openReconcile(file, ownerId, pv, dataOv) {
     `<p class="recon-hint">Marcá las que quieras <b>sacar</b> de la colección. Las que dejes sin marcar se conservan.</p>
      <button class="btn ghost sm" id="rmAll" type="button">Marcar todas</button>`
     + pv.removed.map(g =>
-      `<label class="recon-row rm"><input type="checkbox" class="rmchk" data-id="${g.objectid}"><span class="rn">${esc(g.name)}</span>${stTag(g.from)}</label>`).join('');
+      `<label class="recon-row rm"><input type="checkbox" class="rmchk" data-id="${esc(g.objectid)}"><span class="rn">${esc(g.name)}</span>${stTag(g.from)}</label>`).join('');
 
   const nothing = !pv.added.length && !pv.changed.length && !pv.removed.length;
   const inner = node(`<div class="sheet-body">

@@ -37,6 +37,27 @@
   --radius: 14px;
   --radius-lg: 20px;
   --maxw: 1360px;
+  /* Alto único de los controles de barra (buscador, selects, botón de orden). Existe porque WebKit
+     IGNORA el padding del autor en un <select> nativo: el padding computado da 0px y el control
+     salía 21px contra los 39px del buscador (en Chromium sí se respeta y daba 37px, por eso solo
+     se veía feo en Safari). WebKit sí respeta `height`, así que fijamos el alto explícito y los
+     tres controles quedan parejos en los dos motores.
+     36px es más fino que el 37 que daba Chromium: la barra ocupa menos y se lee igual. En compacto
+     se sube a 40 (abajo): 36px es cómodo con mouse pero chico como blanco táctil.
+     Lo usan TODOS los controles de una línea —buscador, selects, botón de orden y los botones de
+     ícono del topbar— para que la barra de filtros y la botonera de arriba nunca se desparejen.
+
+     ESCALA DE CONTROLES (tres familias; una auditoría midió 9 alturas distintas conviviendo):
+       --ctl-h   controles de línea: buscador, select, .mini-select, .icon-btn, .btn,
+                 .field input, .stepper, .opt del Advisor.
+       --seg-h   botones DENTRO de un contenedor pill: .nav y .seg ("Lo tengo/Lo quiero").
+                 Van más bajos a propósito: el pill que los envuelve aporta su propio padding.
+       --chip-h  chips y tags (.chip, .tagchip): el escalón más chico, son etiquetas.
+     Quedan FUERA a propósito, porque su tamaño es jerarquía y no error: .occ-chip (cabecera del
+     Advisor) y .switch (un toggle, no un control de línea). */
+  --ctl-h: 36px;
+  --seg-h: 32px;
+  --chip-h: 28px;
 }
 
 [data-theme="light"] {
@@ -165,7 +186,7 @@ img { display: block; }
 .nav button {
   border: 0; background: transparent; color: var(--ink-soft);
   padding: 8px 15px; border-radius: 9px; font-size: 13.5px; font-weight: 600;
-  transition: .15s; white-space: nowrap;
+  transition: .15s; white-space: nowrap; min-height: var(--seg-h);
 }
 .nav button:hover { color: var(--ink); }
 .nav button.active { background: var(--brass); color: var(--brass-ink); box-shadow: var(--shadow-card); }
@@ -174,7 +195,10 @@ img { display: block; }
 .top-actions { display: flex; gap: 8px; align-items: center; }
 .icon-btn {
   border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
-  width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; font-size: 17px;
+  /* cuadrado, atado al alto único de controles: así el selector de perfil y los botones del topbar
+     miden lo mismo, y en compacto crecen juntos a 40 (blanco táctil) sin tocar nada más */
+  width: var(--ctl-h); height: var(--ctl-h);
+  border-radius: 11px; display: grid; place-items: center; font-size: 17px;
   transition: .15s;
 }
 .icon-btn:hover { color: var(--brass-2); border-color: var(--brass); transform: translateY(-1px); }
@@ -182,9 +206,10 @@ img { display: block; }
 #btnAdd { background: linear-gradient(150deg, var(--brass-2), var(--brass)); color: var(--brass-ink); border: 0; }
 #btnAdd:hover { color: var(--brass-ink); filter: brightness(1.05); }
 
-/* iPad/tablet: el <select> de Diseñador se ensancha con su opción más larga y empuja la flecha de
-   orden a una segunda línea. Le recortamos ~(botón de orden + separación) solo en tablet; el valor
-   se trunca en la caja pero el desplegable sigue completo. En desktop (ancho) no cambia nada. */
+/* El <select> de Diseñador se ensancha con su opción más larga y empuja la flecha de orden a una
+   segunda línea. Le recortamos ~(botón de orden + separación); el valor se trunca en la caja pero
+   el desplegable sigue completo. Aplica en el tramo donde la línea 1 va inline pero justa
+   (1120–1200, el modo intermedio); de 1200 para arriba sobra ancho y no cambia nada. */
 @media (max-width: 1200px) {
   .filters > select.flt-designer { max-width: 170px; }
 }
@@ -198,14 +223,15 @@ img { display: block; }
    (Filtros/Tipo/Mecánicas). NO incluye la ficha ni el Advisor: en tablet esos siguen como PC (ficha
    en 2 columnas, Advisor sin colapsar) → ver el bloque «solo celular» más abajo. Condición: celular
    (≤640) O tablet en vertical (641–1024 + orientation:portrait). El JS lo espeja en isCompact(). */
-@media (max-width: 640px),
-       (min-width: 641px) and (max-width: 1024px) and (orientation: portrait) {
+@media (max-width: 1119px) {
   /* fila 1 = marca (izquierda) + perfil/＋/⚙ (derecha, por el margin-right:auto de base en .brand);
      fila 2 = nav a lo ancho (order:3 la manda al final + basis 100% la baja a su propio renglón).
      En CELULAR el nombre "Ludoteca" + subtítulo no entran → se ocultan (bloque ≤640). En TABLET
      vertical hay ancho de sobra → la marca completa se queda (die + nombre + subtítulo). */
   /* sin el "(N)" el selector se achicaría: le fijamos el ancho de siempre para que la barra no cambie */
   #ownerSel { min-width: 126px; }
+  /* con el dedo, 34px es un blanco chico: en celular y tablet vertical los controles van más altos */
+  :root { --ctl-h: 40px; }
 
   /* apretar el ritmo vertical del topbar en compacto: la fila de la marca y la de la nav no necesitan
      20px de separación (row-gap→12), y bajamos el padding-bottom del topbar para que el hueco
@@ -364,7 +390,7 @@ img { display: block; }
    · el panel abierto pone los selects a 3 por fila (jugadores/duración/complejidad y, debajo,
      diseñador/orden), en vez de las 2-por-fila anchas del celular (cajas menos grandes).
    Va DESPUÉS del bloque compartido a propósito: gana por orden a igual especificidad. ===== */
-@media (min-width: 641px) and (max-width: 1024px) and (orientation: portrait) {
+@media (min-width: 641px) and (max-width: 1119px) {
   .fbtns > .chip { flex: 1 1 0; }                  /* los 3 iguales, reparten el espacio a la izquierda del tail */
   /* OJO: nada de margin-left:auto en el tail. Con los botones creciendo (flex-grow), un margen auto
      absorbería TODO el espacio libre ANTES que el flex-grow → los botones colapsarían a 0. El tail va
@@ -401,7 +427,7 @@ img { display: block; }
    van a ancho NATURAL (son solo dos) y el tail se pega a la derecha con margin-left:auto.
    No setea `display` en .mech-panel a propósito: lo hereda de la base para que `[hidden]` siga
    ocultándolo (mismo truco que el bloque compacto). ===== */
-@media (orientation: landscape) and (min-width: 1025px) and (max-width: 1366px) {
+@media (min-width: 1120px) and (max-width: 1366px) {
   .fbtns { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .fbtns > .chip { flex: 0 0 auto; }
   /* Tipo / Mecánica del MISMO tamaño: min-width que le entra al más largo ("🛠 Mecánicas (N)", N≤8)
@@ -431,7 +457,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 22px 80px; }
   background: var(--surface); border: 1px solid var(--line-soft); box-shadow: var(--shadow-card);
 }
 .search {
-  flex: 1 1 240px; display: flex; align-items: center; gap: 9px;
+  flex: 1 1 240px; display: flex; align-items: center; gap: 9px; height: var(--ctl-h);
   background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px;
 }
 .search input { border: 0; background: transparent; color: var(--ink); font-size: 14.5px; width: 100%; outline: none; }
@@ -440,6 +466,9 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 22px 80px; }
 select, .mini-select {
   background: var(--bg-2); color: var(--ink); border: 1px solid var(--line);
   border-radius: 10px; padding: 9px 12px; font-size: 13.5px; outline: none; cursor: pointer;
+  /* el alto explícito es lo que iguala el control en WebKit (ver --ctl-h): allá el padding de
+     arriba/abajo se descarta y sin esto el select queda 18px más bajo que el buscador */
+  height: var(--ctl-h);
 }
 .chip.clear-filters { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); color: var(--danger); font-weight: 700; }
 .chip.clear-filters:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
@@ -451,9 +480,12 @@ select, .mini-select {
 .type-chips { display: flex; gap: 7px; flex-wrap: wrap; width: 100%; }
 .chip {
   border: 1px solid var(--line); background: var(--bg-2); color: var(--ink-soft);
-  padding: 6px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600; transition: .15s;
+  /* 5px de padding vertical (no 6): con 6 el alto natural daba 29.2 y el min-height nunca llegaba
+     a aplicar, así que el chip no bajaba a los 28 de la familia. */
+  padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600; transition: .15s;
   display: inline-flex; align-items: center; gap: 6px;
 }
+.chip { min-height: var(--chip-h); }
 .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--ink-dim)); }
 .chip:hover { border-color: var(--ink-dim); color: var(--ink); }
 .chip.active { background: var(--c, var(--brass)); border-color: transparent; color: #10100e; }
@@ -576,7 +608,10 @@ select, .mini-select {
 
 .chips-line { display: flex; gap: 6px; flex-wrap: wrap; }
 .tagchip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--bg-2);
-  border: 1px solid var(--line-soft); color: var(--ink-soft); }
+  border: 1px solid var(--line-soft); color: var(--ink-soft);
+  /* inline-flex + min-height: era un <span> inline, donde `height` no aplica. Así queda a la par
+     de .chip (28 vs 29.2) sin encoger nada, porque es min y no height. */
+  display: inline-flex; align-items: center; min-height: var(--chip-h); }
 .tagchip.click { cursor: pointer; }
 .tagchip.click:hover { border-color: var(--brass); color: var(--ink); }
 .section-h { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-dim); font-weight: 700; margin: 16px 0 8px; }
@@ -585,6 +620,8 @@ select, .mini-select {
 .state-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 12px 24px; border-top: 1px solid var(--line-soft); background: var(--bg-2); position: sticky; bottom: 0; }
 .seg { display: flex; background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 3px; }
 .seg button { border: 0; background: transparent; color: var(--ink-soft); padding: 8px 16px; border-radius: 8px; font-weight: 600; font-size: 13.5px; }
+/* `.seg.sm` afuera: es la variante chica del panel de expansiones, su tamaño es deliberado */
+.seg:not(.sm) button { min-height: var(--seg-h); }
 .seg button.on { background: var(--brass); color: var(--brass-ink); }
 .seg button:disabled { opacity: .38; cursor: not-allowed; }
 .stars { display: flex; gap: 3px; }
@@ -597,6 +634,11 @@ select, .mini-select {
   padding: 10px 18px; border-radius: 11px; font-weight: 600; font-size: 14px; transition: .15s;
   display: inline-flex; align-items: center; gap: 8px;
 }
+/* min-height (no height): un .btn con texto largo que envuelve tiene que poder crecer.
+   `.sm` queda afuera: su tamaño chico es deliberado, no un desalineo.
+   El padding vertical baja de 10 a 8: con 10 el alto natural ya daba 37 y el min-height nunca
+   llegaba a aplicar, así que el botón quedaba 1px más alto que todo lo demás. */
+.btn:not(.sm) { min-height: var(--ctl-h); padding-top: 8px; padding-bottom: 8px; }
 .btn:hover { border-color: var(--brass); transform: translateY(-1px); }
 .btn.primary { background: linear-gradient(150deg, var(--brass-2), var(--brass)); color: var(--brass-ink); border: 0; box-shadow: var(--shadow-card); }
 .btn.ghost { background: transparent; }
@@ -627,7 +669,10 @@ select, .mini-select {
 
 /* tabs (modal Datos) */
 .tabs { display: flex; gap: 4px; background: var(--bg-2); padding: 4px; border-radius: 12px; margin-bottom: 18px; }
-.tabs button { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink-soft); padding: 9px 7px; border-radius: 9px; font-weight: 600; font-size: 13px; white-space: nowrap; transition: .15s; }
+/* .tabs es un pill con padding propio, igual que .nav → sus botones son de la familia --seg-h.
+   El padding baja de 9 a 7 para que el min-height llegue a aplicar (con 9 el natural daba 34.2).
+   El override de celular (.modal .tabs button, más arriba) es más alto a propósito y no se toca. */
+.tabs button { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink-soft); padding: 7px; border-radius: 9px; font-weight: 600; font-size: 13px; white-space: nowrap; transition: .15s; min-height: var(--seg-h); }
 .tabs button.on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-card); }
 .tab-hint { color: var(--ink-dim); font-size: 13px; margin: 0 0 16px; }
 .imp-help { margin: 0 0 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-2); padding: 10px 13px; }
@@ -642,7 +687,6 @@ select, .mini-select {
 .imp-help-note { font-size: 12px; color: var(--ink-dim); line-height: 1.6; }
 .imp-help code { background: var(--surface); padding: 2px 6px; border-radius: 6px; font-size: 11.5px; word-break: break-all; }
 .btn.disabled { opacity: .45; pointer-events: none; }
-.btn.sm { padding: 5px 10px; font-size: 12px; }
 
 /* reconciliación de re-import (flujo 9) */
 .recon-groups { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
@@ -763,13 +807,13 @@ select, .mini-select {
 .q .qh { font-family: 'Bricolage Grotesque'; font-weight: 700; font-size: 17px; margin-bottom: 12px; }
 .opts { display: flex; gap: 10px; flex-wrap: wrap; }
 .opt {
-  padding: 11px 16px; border-radius: 11px; background: var(--surface); border: 1px solid var(--line);
+  padding: 8px 16px; min-height: var(--ctl-h); border-radius: 11px; background: var(--surface); border: 1px solid var(--line);
   color: var(--ink-soft); font-weight: 600; font-size: 14px; transition: .15s; display: inline-flex; gap: 8px; align-items: center;
 }
 .opt:hover { border-color: var(--brass); color: var(--ink); }
 .opt.on { background: var(--brass); color: var(--brass-ink); border-color: transparent; }
 .stepper { display: flex; align-items: center; gap: 4px; }
-.stepper button { width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 18px; }
+.stepper button { width: var(--ctl-h); height: var(--ctl-h); border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 18px; }
 .stepper .val { min-width: 56px; text-align: center; font-size: 22px; font-weight: 800; font-family: 'Bricolage Grotesque'; }
 
 .engine-switch { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--bg-2); border: 1px solid var(--line-soft); border-radius: 12px; margin: 18px 0; flex-wrap: wrap; }
@@ -847,6 +891,9 @@ select, .mini-select {
 .field { margin-bottom: 16px; }
 .field label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-soft); margin-bottom: 6px; }
 .field input, .field textarea { width: 100%; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; color: var(--ink); font-size: 14px; font-family: inherit; outline: none; }
+/* el input de formulario daba 41px contra los 36 del resto: mismo padding vertical de más que .opt.
+   Solo el input (el textarea tiene que poder crecer con el texto). */
+.field input { height: var(--ctl-h); padding-top: 0; padding-bottom: 0; }
 .field input:focus { border-color: var(--brass); }
 .search-results { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow: auto; margin-top: 8px; }
 .sr {
@@ -869,6 +916,8 @@ select, .mini-select {
 }
 .nudge-ic { font-size: 18px; flex: none; }
 .nudge-txt { flex: 1; }
+/* variante chica del .btn (nudges, "Cambiar PIN", "Guardadas"). Definición ÚNICA: antes había otra
+   igual pero con 5px/12px allá arriba, muerta porque esta gana por orden. */
 .btn.sm { padding: 6px 12px; font-size: 12.5px; }
 .nudge-x { background: none; border: 0; color: var(--ink-dim); font-size: 15px; cursor: pointer; padding: 4px 8px; border-radius: 8px; flex: none; }
 .nudge-x:hover { background: var(--surface-2); color: var(--ink); }

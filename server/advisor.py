@@ -699,20 +699,36 @@ def prune_trace_lines(lines, max_days=TRACE_DAYS, max_count=TRACE_MAX, now=None)
     return kept
 
 
+# Cada cuántas escrituras se poda. La poda cuesta leer + reescribir TODO el archivo (con prompts de
+# ~50 KB, varios MB), así que hacerlo en cada llamada era caro y, peor, riesgoso: se truncaba el
+# archivo con "w" antes de tener el contenido nuevo en disco, y un corte ahí borraba el historial
+# entero. Ahora el caso normal es un APPEND (barato y atómico a nivel de línea) y la poda se hace
+# de a ratos, escribiendo a un temporal y renombrando (os.replace es atómico).
+_PRUNE_EVERY = 20
+# arranca "vencido" a propósito: la primera traza tras levantar el server poda. Si no, un proceso
+# que se reinicia seguido nunca llegaría a las 20 escrituras y el archivo crecería sin control.
+_writes_since_prune = _PRUNE_EVERY
+
+
 def _trace(record):
+    global _writes_since_prune
     if not TRACE_ENABLED:
         return
     try:
         record = dict(record, ts=time.strftime(_TS_FMT))
         path = _trace_path()
-        lines = []
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-        lines.append(json.dumps(record, ensure_ascii=False) + "\n")
-        lines = prune_trace_lines(lines)      # poda por antigüedad + cantidad en cada escritura
-        with open(path, "w", encoding="utf-8") as f:
+        with open(path, "a", encoding="utf-8") as f:          # append: no toca lo ya escrito
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        _writes_since_prune += 1
+        if _writes_since_prune < _PRUNE_EVERY:
+            return
+        _writes_since_prune = 0
+        with open(path, "r", encoding="utf-8") as f:
+            lines = prune_trace_lines(f.readlines())
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             f.writelines(lines)
+        os.replace(tmp, path)      # atómico: o queda el archivo viejo entero, o el nuevo entero
     except Exception as e:  # noqa — la traza es best-effort, jamás tumba la recomendación
         print(f"[advisor] no pude escribir la traza: {e}", flush=True)
 
@@ -836,8 +852,14 @@ def _call_gemini(prompt, key, model="gemini-3.6-flash"):
     soporta thinkingConfig, reintenta sin ese campo (robusto ante distintas versiones)."""
     import urllib.request
     import urllib.error
+    # El modelo lo escribe el usuario en ⚙ y se concatena a la URL: saneamos para que no pueda
+    # deformarla (una '/' o un '?' cambiarían el endpoint).
+    model = re.sub(r"[^A-Za-z0-9._-]", "", model or "") or "gemini-3.6-flash"
     url = ("https://generativelanguage.googleapis.com/v1beta/models/"
-           + model + ":generateContent?key=" + key)
+           + model + ":generateContent")
+    # La key va por HEADER, no en la query string: en la URL termina en los logs de cualquier proxy
+    # intermedio (el corporativo, sin ir más lejos). Google acepta las dos formas.
+    headers = {"Content-Type": "application/json", "x-goog-api-key": key}
 
     def post(payload, tries=4):
         # timeout 60s por intento. Reintenta ante transitorios: HTTP 429/500/503 de Google, y
@@ -847,7 +869,7 @@ def _call_gemini(prompt, key, model="gemini-3.6-flash"):
         last = None
         for i in range(tries):
             req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                         headers={"Content-Type": "application/json"})
+                                         headers=headers)
             try:
                 with urllib.request.urlopen(req, timeout=60) as r:
                     return json.loads(r.read().decode())

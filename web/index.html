@@ -4,11 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Ludoteca — tu biblioteca de juegos de mesa</title>
-  <link rel="stylesheet" href="/styles.css?v=78">
+  <link rel="stylesheet" href="/styles.css?v=84">
   <!-- pestaña: dado emoji transparente (liviano). Favoritos/pantalla de inicio iOS: baldosa Playa (PNG). -->
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎲%3C/text%3E%3C/svg%3E">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=2">
   <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png?v=2">
+
+  <!-- Agregada a la pantalla de inicio, la app corre en modo STANDALONE: sin la barra de Safari.
+       Además de verse como una app, eso elimina de raíz la franja del borde inferior que se robaba
+       el primer toque (la que nos obligó a separar la flechita 72px del piso). En el navegador
+       común no cambia nada: el fallback sigue siendo el de siempre. -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Ludoteca">
+  <!-- black-translucent: el contenido sube detrás de la status bar y la tiñe el --bg del tema
+       (ya manejamos las safe-areas con viewport-fit=cover). El color lo sincroniza el JS con la
+       apariencia elegida; este valor es solo el de arranque, antes de que corra. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#14100c">
 </head>
 <body>
   <div id="app">

@@ -1,0 +1,17 @@
+{
+  "name": "Ludoteca — tu biblioteca de juegos de mesa",
+  "short_name": "Ludoteca",
+  "description": "Tu colección de juegos de mesa: biblioteca, wishlist, estadísticas y un advisor que te dice qué sacar a la mesa.",
+  "lang": "es-AR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#14100c",
+  "theme_color": "#14100c",
+  "icons": [
+    { "src": "/apple-touch-icon.png?v=2", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon-512.png?v=2", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png?v=2", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

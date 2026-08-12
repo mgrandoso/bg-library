@@ -9,6 +9,43 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-08-12 — Instalable como app, controles parejos y arreglos de layout al achicar la ventana
+### Added
+- **Se puede instalar como app.** Al agregarla a la pantalla de inicio (iOS o Android) ahora abre en
+  modo **standalone**: a pantalla completa, sin la barra del navegador. De paso desaparece el problema
+  de la franja de abajo que se robaba el primer toque, porque en ese modo esa barra no existe. Desde el
+  navegador común no cambia nada.
+- **La barra de estado del sistema toma el color del tema.** Instalada, ya no queda una franja oscura
+  arriba cuando usás Playa o Taberna: se tiñe con el fondo del tema elegido y cambia al vuelo si lo
+  cambiás.
+
+### Changed
+- **Altura pareja en todos los controles.** Buscador, desplegables, botones de la barra de arriba,
+  campos de los formularios y las opciones del Advisor convivían con **nueve alturas distintas**. Ahora
+  responden a una escala de tres tamaños (controles, botones dentro de una barra, y chips), y de paso
+  quedaron **un poco más finos**: la barra de filtros ocupa menos.
+- **Chips de tipo más chicos**, a tono con la escala nueva.
+
+### Fixed
+- **Los desplegables se veían mucho más finos en Safari.** Safari descarta el espaciado interno de un
+  desplegable nativo, así que quedaban casi a la mitad de alto que el buscador (en Chrome y Edge se
+  veían bien, por eso pasaba desapercibido). Ahora miden lo mismo en todos los navegadores.
+- **Al achicar la ventana en PC, el layout iba y volvía.** La secuencia era escritorio → tablet →
+  **escritorio otra vez** → celular. Además los filtros ya se partían en dos filas bastante antes de
+  que la app se diera cuenta y los agrupara. Ahora el corte está donde de verdad dejan de entrar en una
+  línea, y achicar solo puede simplificar el layout, nunca volver atrás.
+- **Renombrar un perfil con un nombre ya usado no hacía nada.** Ni cambiaba el nombre ni avisaba. Ahora
+  te dice que ese nombre ya existe.
+- **Los botones de perfiles (renombrar, vaciar, borrar) podían no responder.** Usaban los diálogos del
+  navegador, que en la app instalada y en algunos navegadores vienen desactivados. Ahora usan los mismos
+  diálogos internos que el resto de la app, y si algo falla te avisa en lugar de quedarse mudo.
+- **Buscar un texto con `%` o `_` traía resultados de más.** Se tomaban como comodines; ahora se buscan
+  como los escribís.
+- **"Actualizar" podía trabar el resto de la app.** Mientras bajaba datos de BGG, marcar un juego desde
+  otra pantalla podía fallar. Ya no: la base se libera entre juego y juego.
+- **A veces el celular seguía mostrando la versión vieja de los estilos** después de actualizar. El
+  control de versiones de los archivos ahora es automático.
+
 ## [0.12.9] — 2026-08-10 — Fixes de toque en iOS (botón "volver arriba" y ficha) y limpieza del selector
 ### Changed
 - **Selector de perfil sin el `(N)`:** el contador de juegos entre paréntesis (p. ej. `Vos (154)`) ya no
