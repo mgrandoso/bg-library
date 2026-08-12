@@ -130,7 +130,7 @@ function stateControls(g) {
       <div class="seg">
         <button data-s="own" class="${g.own ? 'on' : ''}"><span class="seg-ic">📦</span><span class="seg-tx">Lo tengo</span></button>
         <button data-s="wishlist" class="${g.wishlist ? 'on' : ''}"><span class="seg-ic">⭐</span><span class="seg-tx">Lo quiero</span></button>
-        <button data-s="none" class="${!g.own && !g.wishlist ? 'on' : ''}"><span class="seg-ic">✕</span><span class="seg-tx">Ninguno</span></button>
+        <button data-s="none" class="${!g.own && !g.wishlist ? 'on' : ''}"><span class="seg-ic">⛔</span><span class="seg-tx">Ninguno</span></button>
       </div>
       <div class="prio ${g.wishlist ? '' : 'hidden'}" style="display:${g.wishlist ? 'flex' : 'none'};align-items:center;gap:8px">
         <span style="color:var(--ink-dim);font-size:13px">Prioridad</span>

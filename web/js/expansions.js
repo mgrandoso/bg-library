@@ -80,7 +80,7 @@ async function openExpansionsPanel(g, onChange) {
         <div class="exp-controls">
           <button class="exp-ficha" title="Ver ficha de la expansión">Ver</button>
           <div class="seg sm">
-            <button data-s="none" class="${!it.state ? 'on' : ''}">—</button>
+            <button data-s="none" class="${!it.state ? 'on' : ''}">⛔</button>
             <button data-s="own" class="${it.state === 'own' ? 'on' : ''}">📦</button>
             <button data-s="wish" class="${it.state === 'wish' ? 'on' : ''}">⭐</button>
           </div>

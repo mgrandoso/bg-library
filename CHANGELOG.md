@@ -9,6 +9,15 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.14.2] — 2026-08-12
+### Changed
+- **La "✕" de Ninguno pasó a ⛔.** Era el único de los tres botones de la ficha con un símbolo de
+  texto plano —fino y del color de la letra— al lado de dos emoji con color (📦 y ⭐), así que
+  desentonaba y en el navegador casi no se veía. El panel de expansiones usaba otro símbolo más
+  (`—`) para lo mismo: ahora los dos dicen ⛔.
+- **Aire entre el icono y la palabra.** Decía "📦Lo tengo", todo pegado. En el celular, donde solo
+  se ve el icono, el espacio se anula para que no quede descentrado.
+
 ## [0.14.1] — 2026-08-12
 ### Fixed
 - **Al angostar la ventana, la grilla dejó de saltar para arriba.** La secuencia era

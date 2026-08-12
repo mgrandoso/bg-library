@@ -337,7 +337,7 @@ img { display: block; }
 
   /* ---- barra de estado: más compacta y con solo iconos (no ocupa dos renglones) ----
      Prefijadas con `.modal` para ganarle en especificidad a las reglas base (que van más abajo).
-     La barra es sticky bottom:0 → sus botones (📦/⭐/✕) quedaban pegados al borde inferior, dentro de
+     La barra es sticky bottom:0 → sus botones (📦/⭐/⛔) quedaban pegados al borde inferior, dentro de
      la franja donde iOS Safari revela su toolbar → el primer toque abría la barra en vez de clickear.
      Fix: separación abajo que los levanta fuera de esa franja. Con la toolbar COLAPSADA hace falta
      (40px); con la toolbar DESPLEGADA la propia barra ya separa y ese hueco queda feo, así que ahí se
@@ -346,7 +346,8 @@ img { display: block; }
   .modal .state-bar { padding: 10px 14px var(--sb-pad, 40px); gap: 8px; }
   .modal .seg { flex: 1; }
   .modal .seg button { flex: 1; padding: 9px 0; font-size: 16px; }
-  .modal .seg .seg-tx { display: none; }   /* solo el icono: 📦 / ⭐ / ✕ */
+  .modal .seg .seg-tx { display: none; }   /* solo el icono: 📦 / ⭐ / ⛔ */
+  .modal .seg .seg-ic { margin-right: 0; }  /* sin texto al lado, el aire descentraría el icono */
 
   /* tabs de Configuración: 5 no entran con texto → solo iconos, más grandes y separados */
   .modal .tabs { gap: 6px; padding: 5px; }
@@ -630,6 +631,9 @@ select, .mini-select {
 /* `.seg.sm` afuera: es la variante chica del panel de expansiones, su tamaño es deliberado */
 .seg:not(.sm) button { min-height: var(--seg-h); }
 .seg button.on { background: var(--brass); color: var(--brass-ink); }
+/* aire entre el icono y la palabra: sin esto quedaba "📦Lo tengo", todo pegado. En celular el
+   texto se oculta y el margen se anula (ver el bloque de ≤640px). */
+.seg .seg-ic { margin-right: 6px; }
 .seg button:disabled { opacity: .38; cursor: not-allowed; }
 .stars { display: flex; gap: 3px; }
 .stars .s { font-size: 20px; color: var(--line); cursor: pointer; transition: .1s; }
