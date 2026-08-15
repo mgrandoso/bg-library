@@ -9,6 +9,11 @@ viven aparte, en [`REVIEW.md`](REVIEW.md).
 
 ## [Unreleased]
 
+## [0.14.4] — 2026-08-15
+### Changed
+- En el Advisor, el botón **🎲 Sorprendeme** ahora dice **🎲 ¿Qué le pongo a su salchicha Spok?**.
+  Hace exactamente lo mismo: elige al azar entre los tres primeros y te abre la ficha.
+
 ## [0.14.3] — 2026-08-12
 ### Fixed
 - **Al abrir una expansión que ya tenés desde "Agregar juego", se abría como si fuera un juego

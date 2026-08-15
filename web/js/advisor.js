@@ -325,7 +325,7 @@ function renderResults(out) {
     actions.append(retry);
   }
   if (ADV.mode === 'play') {
-    const sp = node('<button class="btn">🎲 Sorprendeme</button>');
+    const sp = node('<button class="btn">🎲 ¿Qué le pongo a su salchicha Spok?</button>');
     sp.addEventListener('click', () => {
       sp.classList.add('dice-rolling'); setTimeout(() => sp.classList.remove('dice-rolling'), 600);
       const top = out.picks.slice(0, 3);                 // al azar entre los 3 de mejor fit
